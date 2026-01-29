@@ -15,7 +15,8 @@
       "Bash(git commit -m \"$\\(cat <<''EOF''\nAdd README.md\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
       "Bash(git commit -m \"$\\(cat <<''EOF''\nAdd saved time display when skipping sections\n\n- Shows accumulated \"貯金\" \\(saved time\\) when skipping with \"次へ\"\n- Displayed in main UI and PiP window\n- Resets on timer reset\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
       "Bash(git commit -m \"$\\(cat <<''EOF''\nAdd jump to any section from schedule list\n\n- Click any item in schedule to jump to that section\n- Confirmation dialog when timer is running\n- Hover effects on schedule items\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
-      "Bash(git commit -m \"$\\(cat <<''EOF''\nAdd participant names and split comment section\n\n- Add name input fields for 3 participants\n- Names displayed in schedule, timer, and PiP\n- Split ④ チームメイトからのコメント into 5min x 2 \\(④-1, ④-2\\)\n- Updated flow diagram for 5 steps per person\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")"
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nAdd participant names and split comment section\n\n- Add name input fields for 3 participants\n- Names displayed in schedule, timer, and PiP\n- Split ④ チームメイトからのコメント into 5min x 2 \\(④-1, ④-2\\)\n- Updated flow diagram for 5 steps per person\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git commit:*)"
     ]
   }
 }
