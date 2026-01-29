@@ -183,8 +183,42 @@
             background: #888;
         }
 
+        .participants {
+            margin-top: 25px;
+            text-align: left;
+            background: white;
+            padding: 15px 20px;
+            border-radius: 8px;
+            border: 1px solid #e0e0e0;
+        }
+
+        .participants h3 {
+            margin-bottom: 12px;
+            color: #666;
+            font-weight: normal;
+            font-size: 0.9rem;
+        }
+
+        .participant-inputs {
+            display: flex;
+            gap: 10px;
+        }
+
+        .participant-inputs input {
+            flex: 1;
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 0.9rem;
+        }
+
+        .participant-inputs input:focus {
+            outline: none;
+            border-color: #6b9080;
+        }
+
         .schedule {
-            margin-top: 30px;
+            margin-top: 15px;
             text-align: left;
             background: white;
             padding: 20px;
@@ -430,6 +464,15 @@
                 <button class="btn-reset" onclick="resetTimer()">↺ リセット</button>
             </div>
 
+            <div class="participants">
+                <h3>👥 参加者名（任意）</h3>
+                <div class="participant-inputs">
+                    <input type="text" placeholder="1人目" onchange="updateParticipantName(0, this.value)">
+                    <input type="text" placeholder="2人目" onchange="updateParticipantName(1, this.value)">
+                    <input type="text" placeholder="3人目" onchange="updateParticipantName(2, this.value)">
+                </div>
+            </div>
+
             <div class="schedule" id="schedule">
                 <h3>📋 スケジュール</h3>
                 <div id="scheduleList"></div>
@@ -446,6 +489,7 @@
     <script>
         // 設定
         let includeSetup = true; // ①準備フェーズを含むかどうか
+        let participantNames = ['', '', '']; // 参加者の名前
 
         // スケジュール生成関数
         function generateSchedule() {
@@ -460,12 +504,26 @@
                 newSchedule.push(
                     { name: `② 会社での役割`, duration: 3 * 60, person: person },
                     { name: `③ 相談事項の共有`, duration: 5 * 60, person: person },
-                    { name: `④ チームメイトからのコメント`, duration: 10 * 60, person: person },
+                    { name: `④-1 チームメイトからのコメント`, duration: 5 * 60, person: person },
+                    { name: `④-2 チームメイトからのコメント`, duration: 5 * 60, person: person },
                     { name: `⑤ 学び・気づき/babystepの共有`, duration: 3 * 60, person: person }
                 );
             }
 
             return newSchedule;
+        }
+
+        function getPersonName(personIndex) {
+            if (personIndex === 0) return '準備';
+            const name = participantNames[personIndex - 1];
+            return name ? name : `${personIndex}人目`;
+        }
+
+        function updateParticipantName(index, name) {
+            participantNames[index] = name;
+            updateScheduleList();
+            updateFlowDiagram();
+            updateDisplay();
         }
 
         let schedule = generateSchedule();
@@ -560,9 +618,10 @@
                 personIndicator.classList.remove('active');
                 sectionDescription.textContent = 'タイムキーパーと発表順を決めてください';
             } else {
-                personIndicator.textContent = `${current.person}人目の発表`;
+                const name = getPersonName(current.person);
+                personIndicator.textContent = `${name}の発表`;
                 personIndicator.classList.add('active');
-                sectionDescription.textContent = `${current.person}人目のセッション`;
+                sectionDescription.textContent = `${name}のセッション`;
             }
 
             // タイマー表示
@@ -628,7 +687,7 @@
                     div.classList.add('current');
                 }
 
-                const personText = item.isSetup ? '' : ` [${item.person}人目]`;
+                const personText = item.isSetup ? '' : ` [${getPersonName(item.person)}]`;
                 div.innerHTML = `
                     <span>${item.name}${personText}</span>
                     <span class="time">${Math.floor(item.duration / 60)}分</span>
@@ -673,7 +732,7 @@
             const diagram = document.getElementById('flowDiagram');
             diagram.innerHTML = '';
 
-            // グループ定義: 準備(オプション) + 3人分
+            // グループ定義: 準備(オプション) + 3人分（各5ステップ: ②③④④⑤）
             const groups = [];
             let offset = 0;
 
@@ -682,11 +741,14 @@
                 offset = 1;
             }
 
-            groups.push(
-                { label: '1人目', indices: [offset, offset+1, offset+2, offset+3], steps: ['②', '③', '④', '⑤'] },
-                { label: '2人目', indices: [offset+4, offset+5, offset+6, offset+7], steps: ['②', '③', '④', '⑤'] },
-                { label: '3人目', indices: [offset+8, offset+9, offset+10, offset+11], steps: ['②', '③', '④', '⑤'] }
-            );
+            for (let i = 0; i < 3; i++) {
+                const base = offset + i * 5;
+                groups.push({
+                    label: getPersonName(i + 1),
+                    indices: [base, base+1, base+2, base+3, base+4],
+                    steps: ['②', '③', '④', '④', '⑤']
+                });
+            }
 
             groups.forEach((group, groupIndex) => {
                 // グループ間のコネクター
@@ -1020,7 +1082,7 @@
 
             if (pipSection) pipSection.textContent = current.name;
             if (pipPerson) {
-                pipPerson.textContent = current.isSetup ? '準備' : `${current.person}人目の発表`;
+                pipPerson.textContent = current.isSetup ? '準備' : `${getPersonName(current.person)}の発表`;
             }
             if (pipTimer) {
                 pipTimer.textContent = formatTime(timeRemaining);
@@ -1057,20 +1119,22 @@
         function updatePiPBreadcrumb(container) {
             container.innerHTML = '';
 
-            // グループごとに表示
+            // グループごとに表示（各5ステップ: ②③④④⑤）
             const groups = [];
-            let setupIdx = 0;
+            let offset = 0;
 
             if (includeSetup) {
                 groups.push({ label: '準', indices: [0] });
-                setupIdx = 1;
+                offset = 1;
             }
 
-            groups.push(
-                { label: '1', indices: [setupIdx, setupIdx+1, setupIdx+2, setupIdx+3] },
-                { label: '2', indices: [setupIdx+4, setupIdx+5, setupIdx+6, setupIdx+7] },
-                { label: '3', indices: [setupIdx+8, setupIdx+9, setupIdx+10, setupIdx+11] }
-            );
+            for (let i = 0; i < 3; i++) {
+                const base = offset + i * 5;
+                groups.push({
+                    label: String(i + 1),
+                    indices: [base, base+1, base+2, base+3, base+4]
+                });
+            }
 
             groups.forEach((group, gIdx) => {
                 if (gIdx > 0) {
@@ -1089,7 +1153,7 @@
 
                     const item = schedule[idx];
                     if (item) {
-                        dot.textContent = item.isSetup ? '①' : ['②','③','④','⑤'][(idx - (includeSetup ? 1 : 0)) % 4];
+                        dot.textContent = item.isSetup ? '①' : ['②','③','④','④','⑤'][(idx - (includeSetup ? 1 : 0)) % 5];
                     }
                     container.appendChild(dot);
                 });
