@@ -324,8 +324,8 @@
         .flow-diagram {
             display: flex;
             justify-content: center;
-            align-items: center;
-            gap: 6px;
+            align-items: stretch;
+            gap: 8px;
             margin: 15px 0 25px 0;
             flex-wrap: wrap;
         }
@@ -334,72 +334,85 @@
             display: flex;
             flex-direction: column;
             align-items: center;
-            gap: 6px;
+            padding: 10px 12px;
+            background: #f8f8f8;
+            border-radius: 8px;
+            border: 1px solid #e5e5e5;
+        }
+
+        .flow-group.active {
+            background: #e8f0eb;
+            border-color: #6b9080;
+        }
+
+        .flow-group.completed {
+            background: #f0f0f0;
+            opacity: 0.7;
         }
 
         .flow-group-label {
-            font-size: 0.7rem;
-            color: #999;
-            white-space: nowrap;
+            font-size: 0.75rem;
+            color: #888;
+            margin-bottom: 8px;
+            font-weight: 500;
         }
 
-        .flow-group-label.active {
+        .flow-group.active .flow-group-label {
             color: #5c8a6e;
-            font-weight: 500;
         }
 
         .flow-steps {
             display: flex;
             align-items: center;
-            gap: 3px;
+            gap: 4px;
         }
 
         .flow-step {
-            width: 24px;
-            height: 24px;
+            width: 26px;
+            height: 26px;
             border-radius: 50%;
-            background: #e8e8e8;
-            border: 1px solid #ccc;
+            background: #e0e0e0;
+            border: 2px solid transparent;
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 0.65rem;
-            color: #999;
+            font-size: 0.6rem;
+            color: #888;
             transition: all 0.2s ease;
         }
 
         .flow-step.completed {
             background: #6b9080;
-            border-color: #6b9080;
             color: white;
         }
 
         .flow-step.current {
             background: #5c8a6e;
-            border-color: #5c8a6e;
+            border-color: #3d6b5a;
             color: white;
-            transform: scale(1.1);
+            transform: scale(1.15);
+            box-shadow: 0 2px 6px rgba(92, 138, 110, 0.4);
         }
 
         .flow-connector {
-            width: 12px;
+            width: 8px;
             height: 2px;
-            background: #ddd;
+            background: #ccc;
         }
 
         .flow-connector.completed {
             background: #6b9080;
         }
 
-        .flow-group-connector {
-            width: 20px;
-            height: 2px;
-            background: #ddd;
-            margin: 0 4px;
+        .flow-group-arrow {
+            color: #ccc;
+            font-size: 1.2rem;
+            margin: 0 2px;
+            align-self: center;
         }
 
-        .flow-group-connector.completed {
-            background: #6b9080;
+        .flow-group-arrow.completed {
+            color: #6b9080;
         }
 
         /* 現在のステップ詳細 */
@@ -754,26 +767,34 @@
                 // グループ間のコネクター
                 if (groupIndex > 0) {
                     const connector = document.createElement('div');
-                    connector.className = 'flow-group-connector';
+                    const arrow = document.createElement('span');
+                    arrow.className = 'flow-group-arrow';
+                    arrow.textContent = '→';
                     // 前のグループが完了していたら完了色に
                     const prevGroup = groups[groupIndex - 1];
                     const prevGroupCompleted = prevGroup.indices.every(i => i < currentIndex);
                     if (prevGroupCompleted) {
-                        connector.classList.add('completed');
+                        arrow.classList.add('completed');
                     }
-                    diagram.appendChild(connector);
+                    diagram.appendChild(arrow);
                 }
 
                 const groupDiv = document.createElement('div');
                 groupDiv.className = 'flow-group';
 
+                // グループの状態を判定
+                const isGroupActive = group.indices.includes(currentIndex);
+                const isGroupCompleted = group.indices.every(i => i < currentIndex);
+
+                if (isGroupActive) {
+                    groupDiv.classList.add('active');
+                } else if (isGroupCompleted) {
+                    groupDiv.classList.add('completed');
+                }
+
                 // グループラベル
                 const label = document.createElement('div');
                 label.className = 'flow-group-label';
-                const isGroupActive = group.indices.includes(currentIndex);
-                if (isGroupActive) {
-                    label.classList.add('active');
-                }
                 label.textContent = group.label;
                 groupDiv.appendChild(label);
 
@@ -931,25 +952,52 @@
                         }
                         .pip-breadcrumb {
                             display: flex;
-                            gap: 3px;
-                            margin-bottom: 10px;
+                            gap: 4px;
+                            margin-bottom: 8px;
                             flex-wrap: wrap;
                             justify-content: center;
+                            align-items: center;
+                        }
+                        .pip-group {
+                            display: flex;
+                            align-items: center;
+                            gap: 2px;
+                            padding: 3px 6px;
+                            background: #f0f0f0;
+                            border-radius: 4px;
+                            border: 1px solid #e0e0e0;
+                        }
+                        .pip-group.active {
+                            background: #e8f0eb;
+                            border-color: #6b9080;
+                        }
+                        .pip-group.completed {
+                            opacity: 0.6;
+                        }
+                        .pip-group-label {
+                            font-size: 0.5rem;
+                            color: #888;
+                            margin-right: 2px;
+                        }
+                        .pip-group.active .pip-group-label {
+                            color: #5c8a6e;
+                            font-weight: bold;
                         }
                         .pip-dot {
-                            width: 18px;
-                            height: 18px;
+                            width: 14px;
+                            height: 14px;
                             border-radius: 50%;
                             background: #ddd;
                             display: flex;
                             align-items: center;
                             justify-content: center;
-                            font-size: 0.5rem;
+                            font-size: 0.45rem;
                             color: #999;
                         }
                         .pip-dot.completed { background: #6b9080; color: white; }
-                        .pip-dot.current { background: #5c8a6e; color: white; transform: scale(1.15); }
-                        .pip-dot-sep { color: #ccc; font-size: 0.6rem; align-self: center; }
+                        .pip-dot.current { background: #5c8a6e; color: white; transform: scale(1.2); box-shadow: 0 1px 3px rgba(0,0,0,0.2); }
+                        .pip-arrow { color: #ccc; font-size: 0.7rem; }
+                        .pip-arrow.completed { color: #6b9080; }
                         .pip-section { font-size: 0.85rem; color: #666; margin-bottom: 3px; }
                         .pip-person { font-size: 0.7rem; color: #5c8a6e; margin-bottom: 6px; }
                         .pip-timer { font-size: 2.5rem; font-weight: 300; color: #333; }
@@ -1137,13 +1185,35 @@
             }
 
             groups.forEach((group, gIdx) => {
+                // グループ間の矢印
                 if (gIdx > 0) {
-                    const sep = pipWindow.document.createElement('span');
-                    sep.className = 'pip-dot-sep';
-                    sep.textContent = '›';
-                    container.appendChild(sep);
+                    const arrow = pipWindow.document.createElement('span');
+                    arrow.className = 'pip-arrow';
+                    arrow.textContent = '→';
+                    const prevGroup = groups[gIdx - 1];
+                    if (prevGroup.indices.every(i => i < currentIndex)) {
+                        arrow.classList.add('completed');
+                    }
+                    container.appendChild(arrow);
                 }
 
+                // グループコンテナ
+                const groupDiv = pipWindow.document.createElement('div');
+                groupDiv.className = 'pip-group';
+
+                const isGroupActive = group.indices.includes(currentIndex);
+                const isGroupCompleted = group.indices.every(i => i < currentIndex);
+
+                if (isGroupActive) groupDiv.classList.add('active');
+                else if (isGroupCompleted) groupDiv.classList.add('completed');
+
+                // グループラベル
+                const labelSpan = pipWindow.document.createElement('span');
+                labelSpan.className = 'pip-group-label';
+                labelSpan.textContent = group.label;
+                groupDiv.appendChild(labelSpan);
+
+                // 各ステップのドット
                 group.indices.forEach((idx) => {
                     if (idx >= schedule.length) return;
                     const dot = pipWindow.document.createElement('div');
@@ -1155,8 +1225,10 @@
                     if (item) {
                         dot.textContent = item.isSetup ? '①' : ['②','③','④','④','⑤'][(idx - (includeSetup ? 1 : 0)) % 5];
                     }
-                    container.appendChild(dot);
+                    groupDiv.appendChild(dot);
                 });
+
+                container.appendChild(groupDiv);
             });
         }
 
