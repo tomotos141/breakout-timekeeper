@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(start d:antigravityapptimekeeper.html)",
+      "Bash(gh auth:*)",
+      "Bash(git mv:*)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nAdd breakout room timekeeper app\n\n- Visual progress diagram showing current step\n- Auto-advance timer with audio alerts\n- Support for 3 participants with 4 activities each\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(gh repo create:*)",
+      "Bash(gh api:*)",
+      "Bash(git add:*)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nUpdate design to calm, minimal style\n\n- Light background with muted colors\n- Removed animations and shadows\n- Softer green accent color\n- Cleaner typography\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git push)"
+    ]
+  }
+}
