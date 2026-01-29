@@ -207,6 +207,12 @@
             justify-content: space-between;
             align-items: center;
             font-size: 0.9rem;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .schedule-item:hover {
+            background: #f0f0f0;
         }
 
         .schedule-item.current {
@@ -214,9 +220,17 @@
             border-left: 3px solid #6b9080;
         }
 
+        .schedule-item.current:hover {
+            background: #dce8df;
+        }
+
         .schedule-item.completed {
             opacity: 0.5;
             text-decoration: line-through;
+        }
+
+        .schedule-item.completed:hover {
+            opacity: 0.7;
         }
 
         .schedule-item .time {
@@ -620,8 +634,39 @@
                     <span class="time">${Math.floor(item.duration / 60)}分</span>
                 `;
 
+                // クリックでその地点から開始
+                div.addEventListener('click', () => jumpToSection(index));
+
                 list.appendChild(div);
             });
+        }
+
+        function jumpToSection(index) {
+            // タイマー実行中は確認
+            if (timerInterval && !isPaused) {
+                if (!confirm('タイマーを停止してこの地点から開始しますか？')) {
+                    return;
+                }
+            }
+
+            // タイマーを停止
+            if (timerInterval) {
+                clearInterval(timerInterval);
+                timerInterval = null;
+            }
+
+            // 指定の地点に移動
+            currentIndex = index;
+            timeRemaining = schedule[index].duration;
+            isPaused = false;
+
+            // UI更新
+            document.getElementById('startBtn').classList.remove('hidden');
+            document.getElementById('pauseBtn').classList.add('hidden');
+            document.getElementById('pauseBtn').textContent = '⏸ 一時停止';
+            document.getElementById('nextBtn').classList.add('hidden');
+
+            updateDisplay();
         }
 
         function updateFlowDiagram() {
