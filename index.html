@@ -363,6 +363,9 @@
 </head>
 <body>
     <div class="top-buttons">
+        <button class="top-btn active" id="setupToggle" onclick="toggleSetup()">
+            ① 準備: ON
+        </button>
         <button class="top-btn" id="pipBtn" onclick="openPiP()">
             📌 ミニ表示
         </button>
@@ -417,28 +420,50 @@
     </div>
 
     <script>
-        // スケジュール定義
-        const baseSchedule = [
-            { name: "① タイムキーパー・発表順の決定", duration: 2 * 60, person: 0, isSetup: true },
-        ];
+        // 設定
+        let includeSetup = true; // ①準備フェーズを含むかどうか
 
-        // 3人分のセッションを追加
-        for (let person = 1; person <= 3; person++) {
-            baseSchedule.push(
-                { name: `② 会社での役割`, duration: 3 * 60, person: person },
-                { name: `③ 相談事項の共有`, duration: 5 * 60, person: person },
-                { name: `④ チームメイトからのコメント`, duration: 10 * 60, person: person },
-                { name: `⑤ 学び・気づき/babystepの共有`, duration: 3 * 60, person: person }
-            );
+        // スケジュール生成関数
+        function generateSchedule() {
+            const newSchedule = [];
+
+            if (includeSetup) {
+                newSchedule.push({ name: "① タイムキーパー・発表順の決定", duration: 2 * 60, person: 0, isSetup: true });
+            }
+
+            // 3人分のセッションを追加
+            for (let person = 1; person <= 3; person++) {
+                newSchedule.push(
+                    { name: `② 会社での役割`, duration: 3 * 60, person: person },
+                    { name: `③ 相談事項の共有`, duration: 5 * 60, person: person },
+                    { name: `④ チームメイトからのコメント`, duration: 10 * 60, person: person },
+                    { name: `⑤ 学び・気づき/babystepの共有`, duration: 3 * 60, person: person }
+                );
+            }
+
+            return newSchedule;
         }
 
-        let schedule = [...baseSchedule];
+        let schedule = generateSchedule();
         let currentIndex = 0;
         let timeRemaining = 0;
         let totalTimeRemaining = 0;
         let timerInterval = null;
         let isPaused = false;
         let soundEnabled = true;
+
+        function toggleSetup() {
+            if (timerInterval) {
+                alert('タイマー実行中は変更できません。リセットしてください。');
+                return;
+            }
+            includeSetup = !includeSetup;
+            schedule = generateSchedule();
+            document.getElementById('setupToggle').textContent = includeSetup ? '① 準備: ON' : '① 準備: OFF';
+            document.getElementById('setupToggle').classList.toggle('active', includeSetup);
+            updateScheduleList();
+            updateFlowDiagram();
+        }
 
         // 音声コンテキスト
         let audioContext = null;
@@ -578,13 +603,20 @@
             const diagram = document.getElementById('flowDiagram');
             diagram.innerHTML = '';
 
-            // グループ定義: 準備 + 3人分
-            const groups = [
-                { label: '準備', indices: [0], steps: ['①'] },
-                { label: '1人目', indices: [1, 2, 3, 4], steps: ['②', '③', '④', '⑤'] },
-                { label: '2人目', indices: [5, 6, 7, 8], steps: ['②', '③', '④', '⑤'] },
-                { label: '3人目', indices: [9, 10, 11, 12], steps: ['②', '③', '④', '⑤'] }
-            ];
+            // グループ定義: 準備(オプション) + 3人分
+            const groups = [];
+            let offset = 0;
+
+            if (includeSetup) {
+                groups.push({ label: '準備', indices: [0], steps: ['①'] });
+                offset = 1;
+            }
+
+            groups.push(
+                { label: '1人目', indices: [offset, offset+1, offset+2, offset+3], steps: ['②', '③', '④', '⑤'] },
+                { label: '2人目', indices: [offset+4, offset+5, offset+6, offset+7], steps: ['②', '③', '④', '⑤'] },
+                { label: '3人目', indices: [offset+8, offset+9, offset+10, offset+11], steps: ['②', '③', '④', '⑤'] }
+            );
 
             groups.forEach((group, groupIndex) => {
                 // グループ間のコネクター
@@ -740,8 +772,8 @@
             if ('documentPictureInPicture' in window) {
                 try {
                     pipWindow = await documentPictureInPicture.requestWindow({
-                        width: 320,
-                        height: 200
+                        width: 360,
+                        height: 280
                     });
 
                     // スタイルを追加
@@ -751,36 +783,87 @@
                         body {
                             font-family: 'Segoe UI', sans-serif;
                             background: #f5f5f5;
-                            padding: 15px;
+                            padding: 12px;
                             display: flex;
                             flex-direction: column;
                             align-items: center;
-                            justify-content: center;
                             height: 100vh;
                         }
-                        .pip-section { font-size: 0.9rem; color: #666; margin-bottom: 5px; }
-                        .pip-person { font-size: 0.75rem; color: #5c8a6e; margin-bottom: 8px; }
-                        .pip-timer { font-size: 3rem; font-weight: 300; color: #333; }
+                        .pip-breadcrumb {
+                            display: flex;
+                            gap: 3px;
+                            margin-bottom: 10px;
+                            flex-wrap: wrap;
+                            justify-content: center;
+                        }
+                        .pip-dot {
+                            width: 18px;
+                            height: 18px;
+                            border-radius: 50%;
+                            background: #ddd;
+                            display: flex;
+                            align-items: center;
+                            justify-content: center;
+                            font-size: 0.5rem;
+                            color: #999;
+                        }
+                        .pip-dot.completed { background: #6b9080; color: white; }
+                        .pip-dot.current { background: #5c8a6e; color: white; transform: scale(1.15); }
+                        .pip-dot-sep { color: #ccc; font-size: 0.6rem; align-self: center; }
+                        .pip-section { font-size: 0.85rem; color: #666; margin-bottom: 3px; }
+                        .pip-person { font-size: 0.7rem; color: #5c8a6e; margin-bottom: 6px; }
+                        .pip-timer { font-size: 2.5rem; font-weight: 300; color: #333; }
                         .pip-timer.warning { color: #b8860b; }
                         .pip-timer.danger { color: #c0392b; }
-                        .pip-progress { width: 100%; height: 4px; background: #ddd; border-radius: 2px; margin-top: 10px; }
+                        .pip-progress { width: 100%; height: 4px; background: #ddd; border-radius: 2px; margin: 8px 0; }
                         .pip-progress-bar { height: 100%; background: #6b9080; border-radius: 2px; transition: width 0.3s; }
                         .pip-progress-bar.warning { background: #b8860b; }
                         .pip-progress-bar.danger { background: #c0392b; }
-                        .pip-step { font-size: 0.7rem; color: #999; margin-top: 8px; }
+                        .pip-controls { display: flex; gap: 8px; margin-top: 8px; }
+                        .pip-btn {
+                            padding: 6px 14px;
+                            border: 1px solid #ccc;
+                            border-radius: 4px;
+                            background: white;
+                            cursor: pointer;
+                            font-size: 0.75rem;
+                            color: #555;
+                        }
+                        .pip-btn:hover { background: #f0f0f0; }
+                        .pip-btn.primary { background: #6b9080; color: white; border-color: #6b9080; }
+                        .pip-btn.primary:hover { background: #5a7a6a; }
+                        .pip-step { font-size: 0.65rem; color: #999; margin-top: 6px; }
                     `;
                     pipWindow.document.head.appendChild(style);
 
                     // コンテンツを追加
                     pipWindow.document.body.innerHTML = `
+                        <div class="pip-breadcrumb" id="pipBreadcrumb"></div>
                         <div class="pip-section" id="pipSection">開始前</div>
                         <div class="pip-person" id="pipPerson">準備中</div>
                         <div class="pip-timer" id="pipTimer">00:00</div>
                         <div class="pip-progress">
                             <div class="pip-progress-bar" id="pipProgressBar" style="width: 100%"></div>
                         </div>
+                        <div class="pip-controls" id="pipControls">
+                            <button class="pip-btn primary" id="pipStartBtn">▶ スタート</button>
+                            <button class="pip-btn" id="pipNextBtn" style="display:none;">⏭ 次へ</button>
+                        </div>
                         <div class="pip-step" id="pipStep">ステップ: 0 / 0</div>
                     `;
+
+                    // PiPのボタンにイベントリスナーを追加
+                    pipWindow.document.getElementById('pipStartBtn').addEventListener('click', () => {
+                        if (!timerInterval) {
+                            startTimer();
+                        } else {
+                            pauseTimer();
+                        }
+                        updatePiPControls();
+                    });
+                    pipWindow.document.getElementById('pipNextBtn').addEventListener('click', () => {
+                        nextSection();
+                    });
 
                     // ボタンをアクティブ状態に
                     document.getElementById('pipBtn').classList.add('active');
@@ -853,6 +936,7 @@
             const pipTimer = pipWindow.document.getElementById('pipTimer');
             const pipProgressBar = pipWindow.document.getElementById('pipProgressBar');
             const pipStep = pipWindow.document.getElementById('pipStep');
+            const pipBreadcrumb = pipWindow.document.getElementById('pipBreadcrumb');
 
             if (pipSection) pipSection.textContent = current.name;
             if (pipPerson) {
@@ -873,6 +957,80 @@
             }
             if (pipStep) {
                 pipStep.textContent = `ステップ: ${currentIndex + 1} / ${schedule.length}`;
+            }
+
+            // パンくずリスト更新
+            if (pipBreadcrumb) {
+                updatePiPBreadcrumb(pipBreadcrumb);
+            }
+
+            // コントロール更新
+            updatePiPControls();
+        }
+
+        function updatePiPBreadcrumb(container) {
+            container.innerHTML = '';
+
+            // グループごとに表示
+            const groups = [];
+            let setupIdx = 0;
+
+            if (includeSetup) {
+                groups.push({ label: '準', indices: [0] });
+                setupIdx = 1;
+            }
+
+            groups.push(
+                { label: '1', indices: [setupIdx, setupIdx+1, setupIdx+2, setupIdx+3] },
+                { label: '2', indices: [setupIdx+4, setupIdx+5, setupIdx+6, setupIdx+7] },
+                { label: '3', indices: [setupIdx+8, setupIdx+9, setupIdx+10, setupIdx+11] }
+            );
+
+            groups.forEach((group, gIdx) => {
+                if (gIdx > 0) {
+                    const sep = pipWindow.document.createElement('span');
+                    sep.className = 'pip-dot-sep';
+                    sep.textContent = '›';
+                    container.appendChild(sep);
+                }
+
+                group.indices.forEach((idx) => {
+                    if (idx >= schedule.length) return;
+                    const dot = pipWindow.document.createElement('div');
+                    dot.className = 'pip-dot';
+                    if (idx < currentIndex) dot.classList.add('completed');
+                    else if (idx === currentIndex) dot.classList.add('current');
+
+                    const item = schedule[idx];
+                    if (item) {
+                        dot.textContent = item.isSetup ? '①' : ['②','③','④','⑤'][(idx - (includeSetup ? 1 : 0)) % 4];
+                    }
+                    container.appendChild(dot);
+                });
+            });
+        }
+
+        function updatePiPControls() {
+            if (!pipWindow) return;
+
+            const startBtn = pipWindow.document.getElementById('pipStartBtn');
+            const nextBtn = pipWindow.document.getElementById('pipNextBtn');
+
+            if (startBtn) {
+                if (!timerInterval) {
+                    startBtn.textContent = '▶ スタート';
+                    startBtn.classList.add('primary');
+                } else if (isPaused) {
+                    startBtn.textContent = '▶ 再開';
+                    startBtn.classList.add('primary');
+                } else {
+                    startBtn.textContent = '⏸ 一時停止';
+                    startBtn.classList.remove('primary');
+                }
+            }
+
+            if (nextBtn) {
+                nextBtn.style.display = timerInterval ? 'block' : 'none';
             }
         }
 

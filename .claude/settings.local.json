@@ -10,7 +10,8 @@
       "Bash(git add:*)",
       "Bash(git commit -m \"$\\(cat <<''EOF''\nUpdate design to calm, minimal style\n\n- Light background with muted colors\n- Removed animations and shadows\n- Softer green accent color\n- Cleaner typography\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
       "Bash(git push)",
-      "Bash(git commit -m \"$\\(cat <<''EOF''\nAdd Picture-in-Picture mini window feature\n\n- Click \"ミニ表示\" button to open floating timer\n- Works with Document PiP API \\(Chrome 116+\\)\n- Shows timer, section name, and progress\n- Stays on top of other windows\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")"
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nAdd Picture-in-Picture mini window feature\n\n- Click \"ミニ表示\" button to open floating timer\n- Works with Document PiP API \\(Chrome 116+\\)\n- Shows timer, section name, and progress\n- Stays on top of other windows\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nAdd PiP controls, breadcrumb, and setup toggle\n\n- PiP window now has start/pause and skip buttons\n- Breadcrumb progress indicator in PiP shows all steps\n- Toggle button for ① setup phase \\(ON/OFF for 2nd+ meetings\\)\n- Flow diagram adapts to setup toggle state\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")"
     ]
   }
 }
