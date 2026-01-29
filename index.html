@@ -477,8 +477,8 @@
 </head>
 <body>
     <div class="top-buttons">
-        <button class="top-btn active" id="setupToggle" onclick="toggleSetup()">
-            ① 準備: ON
+        <button class="top-btn active" id="firstMeetingToggle" onclick="toggleFirstMeeting()">
+            初回MTG: ON
         </button>
         <button class="top-btn" id="pipBtn" onclick="openPiP()">
             📌 ミニ表示
@@ -553,6 +553,7 @@
     <script>
         // 設定
         let includeSetup = true; // ①準備フェーズを含むかどうか
+        let includeRole = true; // ②会社での役割を含むかどうか
         let participantNames = ['', '', '']; // 参加者の名前
 
         // スケジュール生成関数
@@ -565,8 +566,10 @@
 
             // 3人分のセッションを追加
             for (let person = 1; person <= 3; person++) {
+                if (includeRole) {
+                    newSchedule.push({ name: `② 会社での役割`, duration: 3 * 60, person: person });
+                }
                 newSchedule.push(
-                    { name: `② 会社での役割`, duration: 3 * 60, person: person },
                     { name: `③ 相談事項の共有`, duration: 5 * 60, person: person },
                     { name: `④-1 チームメイトからのコメント`, duration: 5 * 60, person: person },
                     { name: `④-2 チームメイトからのコメント`, duration: 5 * 60, person: person },
@@ -599,15 +602,18 @@
         let soundEnabled = true;
         let savedTime = 0; // 余り時間の累計
 
-        function toggleSetup() {
+        function toggleFirstMeeting() {
             if (timerInterval) {
                 alert('タイマー実行中は変更できません。リセットしてください。');
                 return;
             }
-            includeSetup = !includeSetup;
+            // ①と②を同時に切り替え
+            const isFirstMeeting = !includeSetup; // 現在OFFならONに
+            includeSetup = isFirstMeeting;
+            includeRole = isFirstMeeting;
             schedule = generateSchedule();
-            document.getElementById('setupToggle').textContent = includeSetup ? '① 準備: ON' : '① 準備: OFF';
-            document.getElementById('setupToggle').classList.toggle('active', includeSetup);
+            document.getElementById('firstMeetingToggle').textContent = isFirstMeeting ? '初回MTG: ON' : '初回MTG: OFF';
+            document.getElementById('firstMeetingToggle').classList.toggle('active', isFirstMeeting);
             updateScheduleList();
             updateFlowDiagram();
         }
@@ -830,7 +836,11 @@
             const diagram = document.getElementById('flowDiagram');
             diagram.innerHTML = '';
 
-            // グループ定義: 準備(オプション) + 3人分（各5ステップ: ②③④④⑤）
+            // ステップ数を動的に計算
+            const stepsPerPerson = includeRole ? 5 : 4;
+            const stepLabels = includeRole ? ['②', '③', '④', '④', '⑤'] : ['③', '④', '④', '⑤'];
+
+            // グループ定義: 準備(オプション) + 3人分
             const groups = [];
             let offset = 0;
 
@@ -840,11 +850,15 @@
             }
 
             for (let i = 0; i < 3; i++) {
-                const base = offset + i * 5;
+                const base = offset + i * stepsPerPerson;
+                const indices = [];
+                for (let j = 0; j < stepsPerPerson; j++) {
+                    indices.push(base + j);
+                }
                 groups.push({
                     label: getPersonName(i + 1),
-                    indices: [base, base+1, base+2, base+3, base+4],
-                    steps: ['②', '③', '④', '④', '⑤']
+                    indices: indices,
+                    steps: stepLabels
                 });
             }
 
@@ -1252,20 +1266,28 @@
         function updatePiPBreadcrumb(container) {
             container.innerHTML = '';
 
-            // グループごとに表示（各5ステップ: ②③④④⑤）
+            // ステップ数を動的に計算
+            const stepsPerPerson = includeRole ? 5 : 4;
+            const stepLabels = includeRole ? ['②', '③', '④', '④', '⑤'] : ['③', '④', '④', '⑤'];
+
             const groups = [];
             let offset = 0;
 
             if (includeSetup) {
-                groups.push({ label: '準', indices: [0] });
+                groups.push({ label: '準', indices: [0], steps: ['①'] });
                 offset = 1;
             }
 
             for (let i = 0; i < 3; i++) {
-                const base = offset + i * 5;
+                const base = offset + i * stepsPerPerson;
+                const indices = [];
+                for (let j = 0; j < stepsPerPerson; j++) {
+                    indices.push(base + j);
+                }
                 groups.push({
                     label: String(i + 1),
-                    indices: [base, base+1, base+2, base+3, base+4]
+                    indices: indices,
+                    steps: stepLabels
                 });
             }
 
@@ -1299,17 +1321,14 @@
                 groupDiv.appendChild(labelSpan);
 
                 // 各ステップのドット
-                group.indices.forEach((idx) => {
+                group.indices.forEach((idx, stepIdx) => {
                     if (idx >= schedule.length) return;
                     const dot = pipWindow.document.createElement('div');
                     dot.className = 'pip-dot';
                     if (idx < currentIndex) dot.classList.add('completed');
                     else if (idx === currentIndex) dot.classList.add('current');
 
-                    const item = schedule[idx];
-                    if (item) {
-                        dot.textContent = item.isSetup ? '①' : ['②','③','④','④','⑤'][(idx - (includeSetup ? 1 : 0)) % 5];
-                    }
+                    dot.textContent = group.steps[stepIdx] || '';
                     groupDiv.appendChild(dot);
                 });
 
