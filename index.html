@@ -44,6 +44,15 @@
             color: #888;
         }
 
+        .saved-time {
+            color: #5c8a6e;
+            font-weight: 500;
+        }
+
+        .saved-time:empty {
+            display: none;
+        }
+
         .person-indicator {
             background: #e0e0e0;
             padding: 8px 16px;
@@ -396,6 +405,7 @@
 
             <div class="progress-info">
                 <span id="currentStep">ステップ: 0 / 0</span>
+                <span id="savedTime" class="saved-time"></span>
                 <span id="totalTime">合計残り時間: --:--</span>
             </div>
 
@@ -451,6 +461,7 @@
         let timerInterval = null;
         let isPaused = false;
         let soundEnabled = true;
+        let savedTime = 0; // 余り時間の累計
 
         function toggleSetup() {
             if (timerInterval) {
@@ -571,8 +582,22 @@
             // 進行図を更新
             updateFlowDiagram();
 
+            // 余り時間を更新
+            updateSavedTimeDisplay();
+
             // PiPを更新
             updatePiP();
+        }
+
+        function updateSavedTimeDisplay() {
+            const el = document.getElementById('savedTime');
+            if (el) {
+                if (savedTime > 0) {
+                    el.textContent = `貯金: +${formatTime(savedTime)}`;
+                } else {
+                    el.textContent = '';
+                }
+            }
         }
 
         function updateScheduleList() {
@@ -722,6 +747,11 @@
         }
 
         function nextSection() {
+            // 余り時間を加算（手動スキップの場合のみ）
+            if (timeRemaining > 0) {
+                savedTime += timeRemaining;
+            }
+
             currentIndex++;
 
             if (currentIndex >= schedule.length) {
@@ -729,6 +759,7 @@
                 clearInterval(timerInterval);
                 document.getElementById('mainContent').classList.add('hidden');
                 document.getElementById('completeScreen').classList.add('show');
+                updateSavedTimeDisplay();
                 playBeep(1200, 200, 5);
                 return;
             }
@@ -743,6 +774,7 @@
             currentIndex = 0;
             timeRemaining = 0;
             isPaused = false;
+            savedTime = 0;
 
             document.getElementById('mainContent').classList.remove('hidden');
             document.getElementById('completeScreen').classList.remove('show');
@@ -762,6 +794,7 @@
 
             updateScheduleList();
             updateFlowDiagram();
+            updateSavedTimeDisplay();
         }
 
         // ピクチャーインピクチャー
@@ -833,6 +866,7 @@
                         .pip-btn.primary { background: #6b9080; color: white; border-color: #6b9080; }
                         .pip-btn.primary:hover { background: #5a7a6a; }
                         .pip-step { font-size: 0.65rem; color: #999; margin-top: 6px; }
+                        .pip-saved { font-size: 0.7rem; color: #5c8a6e; margin-top: 4px; }
                     `;
                     pipWindow.document.head.appendChild(style);
 
@@ -850,6 +884,7 @@
                             <button class="pip-btn" id="pipNextBtn" style="display:none;">⏭ 次へ</button>
                         </div>
                         <div class="pip-step" id="pipStep">ステップ: 0 / 0</div>
+                        <div class="pip-saved" id="pipSaved"></div>
                     `;
 
                     // PiPのボタンにイベントリスナーを追加
@@ -957,6 +992,12 @@
             }
             if (pipStep) {
                 pipStep.textContent = `ステップ: ${currentIndex + 1} / ${schedule.length}`;
+            }
+
+            // 余り時間更新
+            const pipSaved = pipWindow.document.getElementById('pipSaved');
+            if (pipSaved) {
+                pipSaved.textContent = savedTime > 0 ? `貯金: +${formatTime(savedTime)}` : '';
             }
 
             // パンくずリスト更新
