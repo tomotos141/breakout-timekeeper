@@ -183,6 +183,50 @@
             background: #888;
         }
 
+        .use-saved-time {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            margin-top: 15px;
+            padding: 10px;
+            background: #f0f8f4;
+            border-radius: 8px;
+            border: 1px dashed #6b9080;
+        }
+
+        .use-saved-label {
+            font-size: 0.85rem;
+            color: #5c8a6e;
+            font-weight: 500;
+        }
+
+        .btn-use-saved {
+            padding: 6px 12px;
+            font-size: 0.8rem;
+            background: white;
+            border: 1px solid #6b9080;
+            border-radius: 4px;
+            color: #5c8a6e;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-use-saved:hover {
+            background: #6b9080;
+            color: white;
+        }
+
+        .btn-use-saved:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+
+        .btn-use-saved:disabled:hover {
+            background: white;
+            color: #5c8a6e;
+        }
+
         .participants {
             margin-top: 25px;
             text-align: left;
@@ -477,6 +521,13 @@
                 <button class="btn-reset" onclick="resetTimer()">↺ リセット</button>
             </div>
 
+            <div class="use-saved-time hidden" id="useSavedTimeControls">
+                <span class="use-saved-label">貯金を使う:</span>
+                <button class="btn-use-saved" onclick="useSavedTime(30)">+30秒</button>
+                <button class="btn-use-saved" onclick="useSavedTime(60)">+1分</button>
+                <button class="btn-use-saved" onclick="useSavedTime(120)">+2分</button>
+            </div>
+
             <div class="participants">
                 <h3>👥 参加者名（任意）</h3>
                 <div class="participant-inputs">
@@ -684,6 +735,40 @@
                     el.textContent = '';
                 }
             }
+            // 貯金使用ボタンの有効/無効を更新
+            updateUseSavedButtons();
+        }
+
+        function updateUseSavedButtons() {
+            const controls = document.getElementById('useSavedTimeControls');
+            const buttons = controls ? controls.querySelectorAll('.btn-use-saved') : [];
+
+            // タイマー実行中かつ貯金がある場合のみ表示
+            if (controls) {
+                if (timerInterval && savedTime > 0) {
+                    controls.classList.remove('hidden');
+                } else {
+                    controls.classList.add('hidden');
+                }
+            }
+
+            // 各ボタンの有効/無効
+            buttons.forEach(btn => {
+                const seconds = parseInt(btn.getAttribute('onclick').match(/\d+/)[0]);
+                btn.disabled = savedTime < seconds;
+            });
+        }
+
+        function useSavedTime(seconds) {
+            if (savedTime < seconds) return;
+
+            savedTime -= seconds;
+            timeRemaining += seconds;
+
+            // 効果音
+            playBeep(1200, 100, 1);
+
+            updateDisplay();
         }
 
         function updateScheduleList() {
