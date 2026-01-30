@@ -518,7 +518,7 @@
                 <button class="btn-start" id="startBtn" onclick="startTimer()">▶ スタート</button>
                 <button class="btn-pause hidden" id="pauseBtn" onclick="pauseTimer()">⏸ 一時停止</button>
                 <button class="btn-next hidden" id="nextBtn" onclick="nextSection()">⏭ 次へスキップ</button>
-                <button class="btn-reset" onclick="resetTimer()">↺ リセット</button>
+                <button class="btn-reset" onclick="resetTimer()" title="貯金は保持されます（クリックで開始位置を選択できます）">↺ リセット</button>
             </div>
 
             <div class="use-saved-time hidden" id="useSavedTimeControls">
@@ -1023,7 +1023,7 @@
             currentIndex = 0;
             timeRemaining = 0;
             isPaused = false;
-            savedTime = 0;
+            // savedTimeはリセットしない（誤ってリセットしても貯金を保持する）
 
             document.getElementById('mainContent').classList.remove('hidden');
             document.getElementById('completeScreen').classList.remove('show');
