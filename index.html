@@ -549,10 +549,15 @@
             </div>
 
             <div class="schedule" id="p2pSection" style="margin-top:16px;">
-                <h3>🔗 P2P (サーバ不要・コピー&ペーストで接続)</h3>
-                <p style="font-size:0.9rem;color:#666;">手順: 新しい接続を追加 → 自分の Offer を生成して共有 → 相手は Offer を貼り付けて Answer を生成 → Answer を貼り付けて接続完了</p>
+                <h3>🔗 P2P</h3>
+                <p style="font-size:0.9rem;color:#666;">手動シグナリング（コピー&ペースト）に加えて、自動シグナリング（シグナリングサーバ）での接続もサポートしています。</p>
+                <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;">
+                    <input id="signalingUrl" placeholder="シグナリングサーバURL (ws://...)" style="padding:6px 8px;border-radius:6px;border:1px solid #ddd;width:260px" value="ws://localhost:3000" />
+                    <button class="btn-start" id="connectSignalingBtn" onclick="connectSignaling()">シグナリング接続</button>
+                    <button class="btn-reset" id="disconnectSignalingBtn" onclick="disconnectSignaling()" style="display:none">切断</button>
+                </div>
                 <div id="p2pControls"></div>
-                <button class="btn-start" onclick="addPeerSlot()" style="margin-top:8px;">＋ 接続を追加</button>
+                <button class="btn-start" onclick="addPeerSlot()" style="margin-top:8px;">＋ 手動で接続を追加</button>
                 <div style="margin-top:8px;color:#444;font-size:0.9rem">あなたのクライアントID: <code id="clientIdDisplay" style="background:#fff;padding:2px 6px;border-radius:4px;border:1px solid #eee">${clientId}</code></div>
             </div>
 
@@ -647,13 +652,138 @@
         let lastRemoteUpdateAt = 0; // タイムスタンプで最後の更新を追跡
         // ----------------------
 
-        // --- P2P (WebRTC) - manual signaling (copy/paste) ---
+        // --- P2P (WebRTC) - manual signaling (copy/paste) + automatic signaling via WebSocket ---
         const peers = []; // { id, pc, dc, slotId }
         let peerCounter = 0;
         const ICE_CONFIG = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
         let p2pStateSyncInterval = null;
 
-        function addPeerSlot() {
+        // signaling socket
+        let signalingSocket = null;
+        let signalingConnected = false;
+
+        function connectSignaling() {
+            const url = document.getElementById('signalingUrl').value.trim();
+            const room = document.getElementById('teamInput').value.trim();
+            if (!url) return alert('シグナリングサーバのURLを入力してください');
+            if (!room) return alert('チーム名を入力してから接続してください');
+
+            try {
+                signalingSocket = new WebSocket(url);
+            } catch (e) { return alert('接続に失敗しました: ' + e); }
+
+            signalingSocket.onopen = () => {
+                signalingConnected = true;
+                document.getElementById('connectSignalingBtn').style.display = 'none';
+                document.getElementById('disconnectSignalingBtn').style.display = 'inline-block';
+                // send join
+                sendSignaling({ type: 'join', room, from: clientId });
+            };
+            signalingSocket.onmessage = ev => {
+                try { const msg = JSON.parse(ev.data); handleSignalingMessage(msg); } catch(e){}
+            };
+            signalingSocket.onclose = () => {
+                signalingConnected = false;
+                document.getElementById('connectSignalingBtn').style.display = 'inline-block';
+                document.getElementById('disconnectSignalingBtn').style.display = 'none';
+                // cleanup peers created through signaling? keep manual ones
+            };
+            signalingSocket.onerror = () => { alert('シグナリング接続のエラー'); };
+        }
+
+        function disconnectSignaling() {
+            if (signalingSocket) { signalingSocket.close(); signalingSocket = null; }
+        }
+
+        function sendSignaling(msg) {
+            if (!signalingSocket || signalingSocket.readyState !== WebSocket.OPEN) return;
+            signalingSocket.send(JSON.stringify(msg));
+        }
+
+        function handleSignalingMessage(msg) {
+            const { type } = msg;
+            if (type === 'peers') {
+                (msg.peers || []).forEach(peerId => {
+                    // we are the joining client => initiate to each existing peer
+                    createOfferToPeer(peerId);
+                });
+            } else if (type === 'peer-joined') {
+                // a new peer joined after us; we might be the existing peer -> the joining one will initiate
+                // optional: we can initiate if we want, but better: wait for their offer
+            } else if (type === 'offer' && msg.to === clientId) {
+                handleRemoteOffer(msg);
+            } else if (type === 'answer' && msg.to === clientId) {
+                handleRemoteAnswer(msg);
+            } else if (type === 'ice' && msg.to === clientId) {
+                handleRemoteIce(msg);
+            } else if (type === 'peer-left') {
+                // remove peer
+                const p = peers.find(x => x.id === msg.id);
+                if (p) { try { p.dc.close(); } catch(e){}; try { p.pc.close(); } catch(e){}; const i = peers.indexOf(p); if (i>=0) peers.splice(i,1); }
+                electHostIfNeeded();
+            }
+        }
+
+        function createOfferToPeer(peerId) {
+            // avoid duplicate
+            if (peers.find(p => p.id === peerId)) return;
+            const pc = new RTCPeerConnection(ICE_CONFIG);
+            const dc = pc.createDataChannel('timedata');
+            const peerObj = { id: peerId, pc, dc, slotId: null };
+            setupDataChannel(peerObj);
+            setupPC(pc, peerObj);
+
+            pc.onicecandidate = ev => {
+                if (ev.candidate) {
+                    sendSignaling({ type: 'ice', room: document.getElementById('teamInput').value.trim(), from: clientId, to: peerId, candidate: ev.candidate });
+                }
+            };
+
+            peers.push(peerObj);
+
+            pc.createOffer().then(offer => pc.setLocalDescription(offer)).then(() => {
+                sendSignaling({ type: 'offer', room: document.getElementById('teamInput').value.trim(), from: clientId, to: peerId, sdp: pc.localDescription });
+            }).catch(err => console.error(err));
+        }
+
+        async function handleRemoteOffer(msg) {
+            const from = msg.from;
+            // create pc if not exists
+            if (peers.find(p => p.id === from)) return; // already handled
+            const pc = new RTCPeerConnection(ICE_CONFIG);
+            let dcRef = null;
+            pc.ondatachannel = ev => { dcRef = ev.channel; const peerObj = { id: from, pc, dc: dcRef, slotId: null }; setupDataChannel(peerObj); setupPC(pc, peerObj); peers.push(peerObj); };
+
+            pc.onicecandidate = ev => {
+                if (ev.candidate) {
+                    sendSignaling({ type: 'ice', room: document.getElementById('teamInput').value.trim(), from: clientId, to: from, candidate: ev.candidate });
+                }
+            };
+
+            try {
+                await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
+                const answer = await pc.createAnswer();
+                await pc.setLocalDescription(answer);
+                sendSignaling({ type: 'answer', room: document.getElementById('teamInput').value.trim(), from: clientId, to: from, sdp: pc.localDescription });
+            } catch (e) { console.error(e); }
+        }
+
+        async function handleRemoteAnswer(msg) {
+            const from = msg.from;
+            const p = peers.find(x => x.id === from);
+            if (!p) return;
+            try {
+                await p.pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
+            } catch (e) { console.error(e); }
+        }
+
+        function handleRemoteIce(msg) {
+            const from = msg.from;
+            const p = peers.find(x => x.id === from);
+            if (!p) return;
+            try { p.pc.addIceCandidate(new RTCIceCandidate(msg.candidate)); } catch(e) { console.error(e); }
+        }
+
             peerCounter++;
             const slotId = 'peerSlot' + peerCounter;
             const container = document.getElementById('p2pControls');
