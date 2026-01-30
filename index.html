@@ -547,6 +547,19 @@
                 <h3>📋 スケジュール</h3>
                 <div id="scheduleList"></div>
             </div>
+
+            <div class="schedule" id="p2pSection" style="margin-top:16px;">
+                <h3>🔗 P2P (サーバ不要・コピー&ペーストで接続)</h3>
+                <p style="font-size:0.9rem;color:#666;">手順: 新しい接続を追加 → 自分の Offer を生成して共有 → 相手は Offer を貼り付けて Answer を生成 → Answer を貼り付けて接続完了</p>
+                <div id="p2pControls"></div>
+                <button class="btn-start" onclick="addPeerSlot()" style="margin-top:8px;">＋ 接続を追加</button>
+                <div style="margin-top:8px;color:#444;font-size:0.9rem">あなたのクライアントID: <code id="clientIdDisplay" style="background:#fff;padding:2px 6px;border-radius:4px;border:1px solid #eee">${clientId}</code></div>
+            </div>
+
+            <div class="schedule" id="schedule">
+                <h3>📋 スケジュール</h3>
+                <div id="scheduleList"></div>
+            </div>
         </div>
 
         <div class="complete-screen" id="completeScreen">
@@ -633,6 +646,234 @@
         let isHost = false;
         let lastRemoteUpdateAt = 0; // タイムスタンプで最後の更新を追跡
         // ----------------------
+
+        // --- P2P (WebRTC) - manual signaling (copy/paste) ---
+        const peers = []; // { id, pc, dc, slotId }
+        let peerCounter = 0;
+        const ICE_CONFIG = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+        let p2pStateSyncInterval = null;
+
+        function addPeerSlot() {
+            peerCounter++;
+            const slotId = 'peerSlot' + peerCounter;
+            const container = document.getElementById('p2pControls');
+            const div = document.createElement('div');
+            div.id = slotId;
+            div.style = 'background:white;padding:10px;border:1px solid #eee;margin-top:8px;border-radius:6px;';
+            div.innerHTML = `
+                <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;">
+                    <strong>Peer #${peerCounter}</strong>
+                    <button onclick="createOffer('${slotId}')">Offer 生成</button>
+                    <button onclick="createAnswerFromOffer('${slotId}')">OfferからAnswer生成</button>
+                </div>
+                <div style="display:flex;gap:8px;">
+                    <textarea id="${slotId}_local" placeholder="ここにあなたのOffer/Answerをコピー" style="flex:1;height:80px;font-size:0.8rem"></textarea>
+                    <textarea id="${slotId}_remote" placeholder="ここに相手のOffer/Answerを貼り付け" style="flex:1;height:80px;font-size:0.8rem"></textarea>
+                </div>
+                <div style="display:flex;gap:8px;margin-top:6px;">
+                    <button onclick="pasteRemote('${slotId}')">リモートを貼り付けて適用</button>
+                    <button onclick="removePeerSlot('${slotId}')" style="background:#f8f8f8">削除</button>
+                </div>
+            `;
+            container.appendChild(div);
+        }
+
+        function removePeerSlot(slotId) {
+            const el = document.getElementById(slotId);
+            if (!el) return;
+            // close peer if exists
+            const p = peers.find(x => x.slotId === slotId);
+            if (p) {
+                try { p.dc.close(); } catch(e){}
+                try { p.pc.close(); } catch(e){}
+                const idx = peers.indexOf(p); if (idx >= 0) peers.splice(idx,1);
+            }
+            el.remove();
+        }
+
+        async function createOffer(slotId) {
+            const pc = new RTCPeerConnection(ICE_CONFIG);
+            const dc = pc.createDataChannel('timedata');
+            const peerObj = { id: null, pc, dc, slotId };
+            setupDataChannel(peerObj);
+            setupPC(pc, peerObj);
+
+            const offer = await pc.createOffer();
+            await pc.setLocalDescription(offer);
+
+            document.getElementById(`${slotId}_local`).value = JSON.stringify(offer);
+            peers.push(peerObj);
+        }
+
+        async function createAnswerFromOffer(slotId) {
+            const offerText = document.getElementById(`${slotId}_remote`).value.trim();
+            if (!offerText) return alert('先に相手のOfferを貼ってください');
+            let offer;
+            try { offer = JSON.parse(offerText); } catch (e) { return alert('不正なJSONです'); }
+
+            const pc = new RTCPeerConnection(ICE_CONFIG);
+            pc.ondatachannel = ev => {
+                const dc = ev.channel;
+                const peerObj = { id: null, pc, dc, slotId };
+                peerObj.dc = dc;
+                setupDataChannel(peerObj);
+                setupPC(pc, peerObj);
+                peers.push(peerObj);
+            };
+
+            await pc.setRemoteDescription(offer);
+            const answer = await pc.createAnswer();
+            await pc.setLocalDescription(answer);
+            document.getElementById(`${slotId}_local`).value = JSON.stringify(answer);
+        }
+
+        async function pasteRemote(slotId) {
+            const remoteText = document.getElementById(`${slotId}_remote`).value.trim();
+            if (!remoteText) return alert('貼り付けるデータがありません');
+            let desc;
+            try { desc = JSON.parse(remoteText); } catch(e) { return alert('不正なJSONです'); }
+
+            // find peer slot without remote yet
+            let p = peers.find(x => x.slotId === slotId && x.pc && (x.pc.remoteDescription == null || x.pc.remoteDescription.type == null));
+            if (!p) {
+                // maybe this is the initiator pasting answer
+                p = peers.find(x => x.slotId === slotId && x.pc);
+            }
+            if (!p) return alert('対応するPeerが見つかりません');
+
+            try {
+                await p.pc.setRemoteDescription(desc);
+                console.log('Remote desc applied');
+            } catch (err) {
+                alert('Remote desc の適用に失敗しました: ' + err);
+            }
+        }
+
+        function setupPC(pc, peerObj) {
+            pc.onicecandidate = ev => {
+                if (!ev.candidate) return;
+                // we don't automatically send ICE candidates (they are included in the SDP copy/paste flow or can be ignored in most cases)
+            };
+            pc.onconnectionstatechange = () => {
+                if (pc.connectionState === 'connected') {
+                    console.log('Peer connected');
+                }
+            };
+        }
+
+        function setupDataChannel(peerObj) {
+            const dc = peerObj.dc;
+            dc.onopen = () => {
+                // send hello with clientId
+                const hello = { type: 'hello', clientId };
+                dc.send(JSON.stringify(hello));
+                // request current state from peer (if we are new)
+                const req = { type: 'request-state', from: clientId };
+                dc.send(JSON.stringify(req));
+                updatePeerIdOnce(remoteIdFromDc(dc), peerObj);
+            };
+            dc.onmessage = ev => {
+                try {
+                    const msg = JSON.parse(ev.data);
+                    handleP2PMessage(msg, peerObj, dc);
+                } catch (e) { console.error('Invalid msg', e); }
+            };
+            dc.onclose = () => {
+                // remove peer
+                const idx = peers.indexOf(peerObj);
+                if (idx >= 0) peers.splice(idx,1);
+                // re-evaluate host
+                electHostIfNeeded();
+            };
+        }
+
+        function remoteIdFromDc(dc) {
+            // no direct reliable mapping; peer objects updated on hello
+            return null;
+        }
+
+        function updatePeerIdOnce(remoteId, peerObj) {
+            if (remoteId && !peerObj.id) peerObj.id = remoteId;
+            electHostIfNeeded();
+        }
+
+        function handleP2PMessage(msg, peerObj, dc) {
+            if (msg.type === 'hello') {
+                peerObj.id = msg.clientId;
+                electHostIfNeeded();
+            } else if (msg.type === 'request-state') {
+                // if I'm host, send state
+                if (isHost) {
+                    const stateMsg = makeStateMessage();
+                    dc.send(JSON.stringify(stateMsg));
+                }
+            } else if (msg.type === 'state') {
+                // apply state sent by host
+                applyRemoteState(msg);
+            } else if (msg.type === 'action') {
+                // actions from host (e.g., useSaved, next)
+                if (msg.action === 'useSaved') {
+                    savedTime = msg.savedTime;
+                    timeRemaining = msg.timeRemaining;
+                    updateDisplay();
+                }
+            }
+        }
+
+        function makeStateMessage() {
+            return { type: 'state', currentIndex, timeRemaining, savedTime, meetingType, ts: Date.now() };
+        }
+
+        function applyRemoteState(msg) {
+            // accept if newer
+            if (msg.ts && msg.ts <= lastRemoteUpdateAt) return; // ignore old
+            lastRemoteUpdateAt = msg.ts || Date.now();
+            meetingType = msg.meetingType || meetingType;
+            includeRole = meetingType === 'first';
+            schedule = generateSchedule();
+            currentIndex = msg.currentIndex || currentIndex;
+            timeRemaining = typeof msg.timeRemaining === 'number' ? msg.timeRemaining : timeRemaining;
+            savedTime = typeof msg.savedTime === 'number' ? msg.savedTime : savedTime;
+
+            updateScheduleList();
+            updateFlowDiagram();
+            updateSavedTimeDisplay();
+            updateDisplay();
+        }
+
+        function broadcastToPeers(obj) {
+            peers.forEach(p => {
+                try { if (p.dc && p.dc.readyState === 'open') p.dc.send(JSON.stringify(obj)); } catch(e){}
+            });
+        }
+
+        function electHostIfNeeded() {
+            // collect ids
+            const ids = [clientId];
+            peers.forEach(p => { if (p.id) ids.push(p.id); });
+            const newHost = ids.sort()[0];
+            isHost = (newHost === clientId);
+            hostId = newHost;
+            updateHostUI();
+
+            // if I became host, start periodic state broadcast
+            if (isHost) startP2PStateBroadcast(); else stopP2PStateBroadcast();
+        }
+
+        function startP2PStateBroadcast() {
+            if (p2pStateSyncInterval) clearInterval(p2pStateSyncInterval);
+            p2pStateSyncInterval = setInterval(() => {
+                const msg = makeStateMessage();
+                broadcastToPeers(msg);
+            }, 1000);
+        }
+
+        function stopP2PStateBroadcast() {
+            if (p2pStateSyncInterval) { clearInterval(p2pStateSyncInterval); p2pStateSyncInterval = null; }
+        }
+
+        // expose a small helper for popup fallback to call useSavedTime
+        window.useSavedTime = useSavedTime;
 
         function toggleMeetingType() {
             if (timerInterval) {
@@ -1651,6 +1892,10 @@
             if (pipUse30) pipUse30.disabled = (!isHost) || savedTime < 30;
             if (pipUse60) pipUse60.disabled = (!isHost) || savedTime < 60;
             if (pipUse120) pipUse120.disabled = (!isHost) || savedTime < 120;
+
+            // PiP でもP2P状態を表示（簡易）
+            const pipSaved = pipWindow.document.getElementById('pipSaved');
+            if (pipSaved) pipSaved.textContent = savedTime > 0 ? `貯金: +${formatTime(savedTime)}` : '';
         }
 
         // 初期化
@@ -1658,6 +1903,7 @@
         updateFlowDiagram();
         updateHostUI();
         updatePiPControls();
+        document.getElementById('clientIdDisplay').textContent = clientId;
     </script>
 </body>
 </html>
