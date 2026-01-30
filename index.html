@@ -477,12 +477,12 @@
 </head>
 <body>
     <div class="top-buttons">
-        <button class="top-btn active" id="firstMeetingToggle" onclick="toggleFirstMeeting()">
+        <button class="top-btn active" id="meetingTypeBtn" onclick="toggleMeetingType()">
             初回MTG: ON
         </button>
         <button class="top-btn" id="pipBtn" onclick="openPiP()">
             📌 ミニ表示
-        </button>
+        </button> 
         <button class="top-btn" onclick="toggleSound()">
             🔔 <span id="soundStatus">ON</span>
         </button>
@@ -552,8 +552,9 @@
 
     <script>
         // 設定
-        let includeSetup = true; // ①準備フェーズを含むかどうか
-        let includeRole = true; // ②会社での役割を含むかどうか
+        let meetingType = 'first'; // 'first' (初回) or 'second' (2回目)
+        let includeSetup = true; // ①準備フェーズを含むかどうか（通常は両方で有り）
+        let includeRole = true; // 初回MTG時は2番の項目が「会社での役割（3分）」、2回目は「先月の振り返り（3分）」として使う
         let participantNames = ['', '', '']; // 参加者の名前
 
         // スケジュール生成関数
@@ -564,17 +565,30 @@
                 newSchedule.push({ name: "① タイムキーパー・発表順の決定", duration: 2 * 60, person: 0, isSetup: true });
             }
 
-            // 3人分のセッションを追加
-            for (let person = 1; person <= 3; person++) {
-                if (includeRole) {
-                    newSchedule.push({ name: `② 会社での役割`, duration: 3 * 60, person: person });
+            // 3人分のセッションを追加（初回 / 2回目で構成が変わる）
+            if (meetingType === 'first') {
+                // 初回：②は「会社での役割（3分）」、④は2つに分かれる（5分 + 5分）
+                for (let person = 1; person <= 3; person++) {
+                    if (includeRole) {
+                        newSchedule.push({ name: `② 会社での役割`, duration: 3 * 60, person: person });
+                    }
+                    newSchedule.push(
+                        { name: `③ 相談事項の共有`, duration: 5 * 60, person: person },
+                        { name: `④-1 チームメイトからのコメント`, duration: 5 * 60, person: person },
+                        { name: `④-2 チームメイトからのコメント`, duration: 5 * 60, person: person },
+                        { name: `⑤ 学び・気づき/babystepの共有`, duration: 3 * 60, person: person }
+                    );
                 }
-                newSchedule.push(
-                    { name: `③ 相談事項の共有`, duration: 5 * 60, person: person },
-                    { name: `④-1 チームメイトからのコメント`, duration: 5 * 60, person: person },
-                    { name: `④-2 チームメイトからのコメント`, duration: 5 * 60, person: person },
-                    { name: `⑤ 学び・気づき/babystepの共有`, duration: 3 * 60, person: person }
-                );
+            } else {
+                // 2回目：② 先月の振り返り（3分）、④ は一括でコメント（10分）
+                for (let person = 1; person <= 3; person++) {
+                    newSchedule.push(
+                        { name: `② 先月の振り返り`, duration: 3 * 60, person: person },
+                        { name: `③ 相談事項の共有`, duration: 5 * 60, person: person },
+                        { name: `④ チームメイトからのコメント`, duration: 10 * 60, person: person },
+                        { name: `⑤ 学び・気づき/babystepの共有`, duration: 3 * 60, person: person }
+                    );
+                }
             }
 
             return newSchedule;
@@ -602,18 +616,18 @@
         let soundEnabled = true;
         let savedTime = 0; // 余り時間の累計
 
-        function toggleFirstMeeting() {
+        function toggleMeetingType() {
             if (timerInterval) {
                 alert('タイマー実行中は変更できません。リセットしてください。');
                 return;
             }
-            // ①と②を同時に切り替え
-            const isFirstMeeting = !includeSetup; // 現在OFFならONに
-            includeSetup = isFirstMeeting;
-            includeRole = isFirstMeeting;
+            // 初回 ON/OFF を切り替える
+            meetingType = meetingType === 'first' ? 'second' : 'first';
+            includeRole = meetingType === 'first';
             schedule = generateSchedule();
-            document.getElementById('firstMeetingToggle').textContent = isFirstMeeting ? '初回MTG: ON' : '初回MTG: OFF';
-            document.getElementById('firstMeetingToggle').classList.toggle('active', isFirstMeeting);
+            const btn = document.getElementById('meetingTypeBtn');
+            btn.textContent = meetingType === 'first' ? '初回MTG: ON' : '初回MTG: OFF';
+            btn.classList.toggle('active', meetingType === 'first');
             updateScheduleList();
             updateFlowDiagram();
         }
@@ -836,9 +850,15 @@
             const diagram = document.getElementById('flowDiagram');
             diagram.innerHTML = '';
 
-            // ステップ数を動的に計算
-            const stepsPerPerson = includeRole ? 5 : 4;
-            const stepLabels = includeRole ? ['②', '③', '④', '④', '⑤'] : ['③', '④', '④', '⑤'];
+            // ステップ数とラベルをミーティングタイプに合わせて動的に計算
+            let stepsPerPerson, stepLabels;
+            if (meetingType === 'first') {
+                stepsPerPerson = includeRole ? 5 : 4;
+                stepLabels = includeRole ? ['②', '③', '④', '④', '⑤'] : ['③', '④', '④', '⑤'];
+            } else {
+                stepsPerPerson = 4;
+                stepLabels = ['②', '③', '④', '⑤'];
+            }
 
             // グループ定義: 準備(オプション) + 3人分
             const groups = [];
@@ -1266,9 +1286,15 @@
         function updatePiPBreadcrumb(container) {
             container.innerHTML = '';
 
-            // ステップ数を動的に計算
-            const stepsPerPerson = includeRole ? 5 : 4;
-            const stepLabels = includeRole ? ['②', '③', '④', '④', '⑤'] : ['③', '④', '④', '⑤'];
+            // ステップ数とラベルをミーティングタイプに合わせて動的に計算
+            let stepsPerPerson, stepLabels;
+            if (meetingType === 'first') {
+                stepsPerPerson = includeRole ? 5 : 4;
+                stepLabels = includeRole ? ['②', '③', '④', '④', '⑤'] : ['③', '④', '④', '⑤'];
+            } else {
+                stepsPerPerson = 4;
+                stepLabels = ['②', '③', '④', '⑤'];
+            }
 
             const groups = [];
             let offset = 0;
