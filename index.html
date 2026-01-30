@@ -474,19 +474,25 @@
             margin-bottom: 5px;
         }
     </style>
+    <!-- Firebase (Realtime Database) - paste CDN -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
 </head>
 <body>
     <div class="top-buttons">
+        <input id="teamInput" placeholder="チーム名を入力" style="padding:6px 8px;border-radius:6px;border:1px solid #ddd;width:140px" />
+        <button class="top-btn" id="joinRoomBtn">ルーム参加</button>
+        <button class="top-btn" id="takeHostBtn" style="display:none;">ホストを取得</button>
         <button class="top-btn active" id="meetingTypeBtn" onclick="toggleMeetingType()">
             初回MTG: ON
         </button>
         <button class="top-btn" id="pipBtn" onclick="openPiP()">
             📌 ミニ表示
-        </button> 
+        </button>
         <button class="top-btn" onclick="toggleSound()">
             🔔 <span id="soundStatus">ON</span>
         </button>
-    </div>
+        <div id="roomStatus" style="margin-left:10px;color:#666;font-size:0.9rem;align-self:center">未参加</div>
 
     <div class="container">
         <h1>ブレイクアウトルーム タイムキーパー</h1>
@@ -616,6 +622,18 @@
         let soundEnabled = true;
         let savedTime = 0; // 余り時間の累計
 
+        // --- Firebase同期用 ---
+        let firebaseApp = null;
+        let db = null;
+        let roomRef = null;
+        let roomName = null;
+        let clientId = localStorage.getItem('clientId') || ('c-' + Math.random().toString(36).slice(2,9));
+        localStorage.setItem('clientId', clientId);
+        let hostId = null;
+        let isHost = false;
+        let lastRemoteUpdateAt = 0; // タイムスタンプで最後の更新を追跡
+        // ----------------------
+
         function toggleMeetingType() {
             if (timerInterval) {
                 alert('タイマー実行中は変更できません。リセットしてください。');
@@ -630,7 +648,177 @@
             btn.classList.toggle('active', meetingType === 'first');
             updateScheduleList();
             updateFlowDiagram();
+
+            // ホストがいれば状態を書き込む
+            if (isHost && roomRef) {
+                roomRef.update({ meetingType });
+            }
         }
+
+        // --- Firebase sync helpers ---
+        function setupFirebaseFromPrompt() {
+            if (firebaseApp) return true;
+            const cfgStr = prompt('Firebase の web 設定を JSON で貼り付けてください（apiKey, authDomain, databaseURL など）');
+            if (!cfgStr) return false;
+            try {
+                const cfg = JSON.parse(cfgStr);
+                firebaseApp = firebase.initializeApp(cfg);
+                db = firebase.database();
+                return true;
+            } catch (err) {
+                alert('設定の読み込みに失敗しました: ' + err);
+                return false;
+            }
+        }
+
+        function joinRoom(name) {
+            if (!name) return alert('チーム名を入力してください');
+            if (!setupFirebaseFromPrompt()) return;
+
+            roomName = name;
+            roomRef = db.ref('rooms/' + roomName);
+
+            // 参加情報を設定
+            document.getElementById('roomStatus').textContent = `ルーム: ${roomName}（接続中）`;
+            document.getElementById('takeHostBtn').style.display = 'inline-block';
+
+            // ルーム全体の状態を購読
+            roomRef.on('value', snap => {
+                const data = snap.val() || {};
+                // 状態をローカルに反映
+                if (data.meetingType && data.meetingType !== meetingType) {
+                    meetingType = data.meetingType;
+                    includeRole = meetingType === 'first';
+                    schedule = generateSchedule();
+                }
+                if (typeof data.currentIndex === 'number') currentIndex = data.currentIndex;
+                if (typeof data.timeRemaining === 'number') timeRemaining = data.timeRemaining;
+                if (typeof data.savedTime === 'number') savedTime = data.savedTime;
+                if (typeof data.timerRunning === 'boolean') {
+                    // タイマー実行状態
+                    if (data.timerRunning) {
+                        // 非ホストは UI を更新して受動的に表示
+                    }
+                }
+                hostId = data.hostId || null;
+                isHost = hostId === clientId;
+
+                // UI更新
+                updateScheduleList();
+                updateFlowDiagram();
+                updateSavedTimeDisplay();
+                updateDisplay();
+                updateHostUI();
+            });
+
+            // try to claim host if none
+            roomRef.child('hostId').transaction(current => current || clientId);
+        }
+
+        function claimHost() {
+            if (!roomRef) return alert('まずはルームに参加してください');
+            roomRef.child('hostId').transaction(current => {
+                if (!current || current === clientId) return clientId;
+                return; // abort
+            }, (err, committed, snap) => {
+                if (err) return alert('ホスト取得エラー');
+                if (committed) {
+                    hostId = snap.val();
+                    isHost = hostId === clientId;
+                    updateHostUI();
+                    alert(isHost ? 'あなたがホストになりました' : 'ホスト取得に失敗しました');
+                } else {
+                    alert('既に他の人がホストです');
+                }
+            });
+        }
+
+        function updateHostUI() {
+            const takeBtn = document.getElementById('takeHostBtn');
+            const roomEl = document.getElementById('roomStatus');
+            if (!roomRef) {
+                roomEl.textContent = '未参加';
+                takeBtn.style.display = 'none';
+                return;
+            }
+            roomEl.textContent = `ルーム: ${roomName} ${isHost ? '(あなた = ホスト)' : `(ホスト: ${hostId ? hostId.slice(0,6) : '未設定'})`}`;
+            takeBtn.style.display = isHost ? 'none' : 'inline-block';
+
+            // 権限がない場合は操作ボタンを無効化
+            const disabled = !isHost;
+            document.getElementById('startBtn').disabled = disabled;
+            document.getElementById('pauseBtn').disabled = disabled;
+            document.getElementById('nextBtn').disabled = disabled;
+            const useBtns = document.querySelectorAll('.btn-use-saved');
+            useBtns.forEach(b => b.disabled = disabled || savedTime < parseInt((b.getAttribute('onclick')||'').match(/\d+/)?.[0] || 0));
+            // PiPのボタン状態も更新
+            updatePiPControls();
+        }
+
+        // 書き込みのユーティリティ（ホストが呼ぶ）
+        function writeRoomState(patch) {
+            if (!roomRef) return;
+            roomRef.update(Object.assign({}, patch, { lastUpdateBy: clientId, lastUpdateAt: Date.now() }));
+        }
+
+        // ホスト用: タイマーをDBでホストするロジック
+        let hostTimerInterval = null;
+        function hostStartTimer() {
+            // stop previous if any
+            if (hostTimerInterval) clearInterval(hostTimerInterval);
+            // start remote timer flag
+            writeRoomState({ timerRunning: true, timeRemaining });
+
+            hostTimerInterval = setInterval(() => {
+                if (timeRemaining > 0) {
+                    timeRemaining--;
+                    writeRoomState({ timeRemaining });
+
+                    // 30秒前 / 10秒前 効果音はホスト側で再生
+                    if (timeRemaining === 30) playBeep(600, 150, 2);
+                    if (timeRemaining <= 10 && timeRemaining > 0) playBeep(800, 100, 1);
+                }
+                if (timeRemaining <= 0) {
+                    playBeep(1000, 300, 3);
+                    // 次のセクションへ
+                    // add remaining to savedTime
+                    savedTime += 0; // already 0
+                    writeRoomState({ savedTime });
+                    // move to next
+                    currentIndex++;
+                    if (currentIndex >= schedule.length) {
+                        // complete
+                        writeRoomState({ currentIndex, timerRunning: false });
+                        clearInterval(hostTimerInterval);
+                        hostTimerInterval = null;
+                    } else {
+                        timeRemaining = schedule[currentIndex].duration;
+                        writeRoomState({ currentIndex, timeRemaining });
+                    }
+                }
+            }, 1000);
+        }
+
+        function hostPauseTimer() {
+            if (hostTimerInterval) {
+                clearInterval(hostTimerInterval);
+                hostTimerInterval = null;
+            }
+            writeRoomState({ timerRunning: false });
+        }
+
+        // UI wiring for join/host buttons
+        document.addEventListener('DOMContentLoaded', () => {
+            const joinBtn = document.getElementById('joinRoomBtn');
+            const takeHostBtn = document.getElementById('takeHostBtn');
+            const teamInput = document.getElementById('teamInput');
+
+            joinBtn.addEventListener('click', () => {
+                const name = teamInput.value.trim();
+                joinRoom(name);
+            });
+            takeHostBtn.addEventListener('click', () => claimHost());
+        });
 
         // 音声コンテキスト
         let audioContext = null;
@@ -782,6 +970,9 @@
         }
 
         function useSavedTime(seconds) {
+            if (roomRef && !isHost) {
+                return alert('貯金を使えるのはホストのみです。');
+            }
             if (savedTime < seconds) return;
 
             savedTime -= seconds;
@@ -789,6 +980,8 @@
 
             // 効果音
             playBeep(1200, 100, 1);
+
+            if (isHost && roomRef) writeRoomState({ savedTime, timeRemaining });
 
             updateDisplay();
         }
@@ -821,6 +1014,10 @@
         }
 
         function jumpToSection(index) {
+            if (roomRef && !isHost) {
+                return alert('この操作はホストのみ可能です。');
+            }
+
             // タイマー実行中は確認
             if (timerInterval && !isPaused) {
                 if (!confirm('タイマーを停止してこの地点から開始しますか？')) {
@@ -844,6 +1041,8 @@
             document.getElementById('pauseBtn').classList.add('hidden');
             document.getElementById('pauseBtn').textContent = '⏸ 一時停止';
             document.getElementById('nextBtn').classList.add('hidden');
+
+            if (isHost && roomRef) writeRoomState({ currentIndex, timeRemaining });
 
             updateDisplay();
         }
@@ -953,6 +1152,11 @@
         }
 
         function startTimer() {
+            if (roomRef && !isHost) {
+                return alert('この操作はホストのみ可能です。
+ホスト権限を取得してください。');
+            }
+
             initAudio();
 
             if (currentIndex === 0 && timeRemaining === 0) {
@@ -964,38 +1168,52 @@
             document.getElementById('pauseBtn').classList.remove('hidden');
             document.getElementById('nextBtn').classList.remove('hidden');
 
-            timerInterval = setInterval(() => {
-                if (!isPaused) {
-                    timeRemaining--;
-                    updateDisplay();
+            // ホストがいる場合はホスト側でDBを主導
+            if (isHost && roomRef) {
+                writeRoomState({ currentIndex, timeRemaining, timerRunning: true });
+                hostStartTimer();
+            } else {
+                // シングルユーザーモードの挙動（ローカルのみ）
+                timerInterval = setInterval(() => {
+                    if (!isPaused) {
+                        timeRemaining--;
+                        updateDisplay();
 
-                    // 30秒前の警告音
-                    if (timeRemaining === 30) {
-                        playBeep(600, 150, 2);
-                    }
+                        if (timeRemaining === 30) playBeep(600, 150, 2);
+                        if (timeRemaining <= 10 && timeRemaining > 0) playBeep(800, 100, 1);
 
-                    // 10秒前のカウントダウン音
-                    if (timeRemaining <= 10 && timeRemaining > 0) {
-                        playBeep(800, 100, 1);
+                        if (timeRemaining <= 0) {
+                            playBeep(1000, 300, 3);
+                            nextSection();
+                        }
                     }
-
-                    if (timeRemaining <= 0) {
-                        playBeep(1000, 300, 3);
-                        nextSection();
-                    }
-                }
-            }, 1000);
+                }, 1000);
+            }
 
             updateDisplay();
         }
 
         function pauseTimer() {
+            if (roomRef && !isHost) {
+                return alert('この操作はホストのみ可能です。');
+            }
+
             isPaused = !isPaused;
             const btn = document.getElementById('pauseBtn');
             btn.textContent = isPaused ? '▶ 再開' : '⏸ 一時停止';
+
+            if (isHost && roomRef) {
+                if (isPaused) hostPauseTimer();
+                else hostStartTimer();
+            }
+            if (roomRef && isHost) writeRoomState({ timerRunning: !isPaused });
         }
 
         function nextSection() {
+            if (roomRef && !isHost) {
+                return alert('この操作はホストのみ可能です。');
+            }
+
             // 余り時間を加算（手動スキップの場合のみ）
             if (timeRemaining > 0) {
                 savedTime += timeRemaining;
@@ -1005,6 +1223,9 @@
 
             if (currentIndex >= schedule.length) {
                 // 完了
+                if (isHost && roomRef) {
+                    writeRoomState({ currentIndex, timerRunning: false, savedTime });
+                }
                 clearInterval(timerInterval);
                 document.getElementById('mainContent').classList.add('hidden');
                 document.getElementById('completeScreen').classList.add('show');
@@ -1014,10 +1235,15 @@
             }
 
             timeRemaining = schedule[currentIndex].duration;
+            if (isHost && roomRef) writeRoomState({ currentIndex, timeRemaining, savedTime });
             updateDisplay();
         }
 
         function resetTimer() {
+            if (roomRef && !isHost) {
+                return alert('この操作はホストのみ可能です。');
+            }
+
             clearInterval(timerInterval);
             timerInterval = null;
             currentIndex = 0;
@@ -1031,6 +1257,12 @@
             document.getElementById('pauseBtn').classList.add('hidden');
             document.getElementById('pauseBtn').textContent = '⏸ 一時停止';
             document.getElementById('nextBtn').classList.add('hidden');
+
+            // ホストならルーム状態として反映
+            if (isHost && roomRef) {
+                writeRoomState({ currentIndex: 0, timeRemaining: 0, timerRunning: false });
+            }
+        }
 
             document.getElementById('sectionName').textContent = '開始前';
             document.getElementById('sectionDescription').textContent = 'スタートボタンを押してください';
@@ -1404,24 +1636,28 @@
                     startBtn.textContent = '⏸ 一時停止';
                     startBtn.classList.remove('primary');
                 }
+                startBtn.disabled = !isHost;
             }
 
             if (nextBtn) {
                 nextBtn.style.display = timerInterval ? 'block' : 'none';
+                nextBtn.disabled = !isHost;
             }
 
             // 貯金使用ボタンの表示 / 有効化
             if (pipSavedControls) {
                 pipSavedControls.style.display = (timerInterval && savedTime > 0) ? 'flex' : 'none';
             }
-            if (pipUse30) pipUse30.disabled = savedTime < 30;
-            if (pipUse60) pipUse60.disabled = savedTime < 60;
-            if (pipUse120) pipUse120.disabled = savedTime < 120;
+            if (pipUse30) pipUse30.disabled = (!isHost) || savedTime < 30;
+            if (pipUse60) pipUse60.disabled = (!isHost) || savedTime < 60;
+            if (pipUse120) pipUse120.disabled = (!isHost) || savedTime < 120;
         }
 
         // 初期化
         updateScheduleList();
         updateFlowDiagram();
+        updateHostUI();
+        updatePiPControls();
     </script>
 </body>
 </html>
