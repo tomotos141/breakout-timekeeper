@@ -757,6 +757,8 @@
             }
             // 貯金使用ボタンの有効/無効を更新
             updateUseSavedButtons();
+            // PiP側も更新
+            updatePiP();
         }
 
         function updateUseSavedButtons() {
@@ -1156,6 +1158,11 @@
                         <div class="pip-controls" id="pipControls">
                             <button class="pip-btn primary" id="pipStartBtn">▶ スタート</button>
                             <button class="pip-btn" id="pipNextBtn" style="display:none;">⏭ 次へ</button>
+                            <div id="pipSavedControls" style="display:none; margin-left:8px; display:flex; gap:6px;">
+                                <button class="pip-btn" id="pipUse30">+30秒</button>
+                                <button class="pip-btn" id="pipUse60">+1分</button>
+                                <button class="pip-btn" id="pipUse120">+2分</button>
+                            </div>
                         </div>
                         <div class="pip-step" id="pipStep">ステップ: 0 / 0</div>
                         <div class="pip-saved" id="pipSaved"></div>
@@ -1173,6 +1180,15 @@
                     pipWindow.document.getElementById('pipNextBtn').addEventListener('click', () => {
                         nextSection();
                     });
+
+                    // PiP側の貯金使用ボタン
+                    const pipUse30 = pipWindow.document.getElementById('pipUse30');
+                    const pipUse60 = pipWindow.document.getElementById('pipUse60');
+                    const pipUse120 = pipWindow.document.getElementById('pipUse120');
+
+                    if (pipUse30) pipUse30.addEventListener('click', () => { useSavedTime(30); updatePiPControls(); });
+                    if (pipUse60) pipUse60.addEventListener('click', () => { useSavedTime(60); updatePiPControls(); });
+                    if (pipUse120) pipUse120.addEventListener('click', () => { useSavedTime(120); updatePiPControls(); });
 
                     // ボタンをアクティブ状態に
                     document.getElementById('pipBtn').classList.add('active');
@@ -1228,6 +1244,11 @@
                         <div class="pip-section">メインウィンドウを</div>
                         <div class="pip-person">ご確認ください</div>
                         <div class="pip-timer">--:--</div>
+                        <div style="display:flex;gap:6px;margin-top:8px;">
+                            <button onclick="window.opener && window.opener.useSavedTime(30);window.focus();" style="padding:6px 10px;">+30秒</button>
+                            <button onclick="window.opener && window.opener.useSavedTime(60);window.focus();" style="padding:6px 10px;">+1分</button>
+                            <button onclick="window.opener && window.opener.useSavedTime(120);window.focus();" style="padding:6px 10px;">+2分</button>
+                        </div>
                         <div class="pip-step">自動更新は非対応</div>
                     </body>
                     </html>
@@ -1367,6 +1388,10 @@
 
             const startBtn = pipWindow.document.getElementById('pipStartBtn');
             const nextBtn = pipWindow.document.getElementById('pipNextBtn');
+            const pipSavedControls = pipWindow.document.getElementById('pipSavedControls');
+            const pipUse30 = pipWindow.document.getElementById('pipUse30');
+            const pipUse60 = pipWindow.document.getElementById('pipUse60');
+            const pipUse120 = pipWindow.document.getElementById('pipUse120');
 
             if (startBtn) {
                 if (!timerInterval) {
@@ -1384,6 +1409,14 @@
             if (nextBtn) {
                 nextBtn.style.display = timerInterval ? 'block' : 'none';
             }
+
+            // 貯金使用ボタンの表示 / 有効化
+            if (pipSavedControls) {
+                pipSavedControls.style.display = (timerInterval && savedTime > 0) ? 'flex' : 'none';
+            }
+            if (pipUse30) pipUse30.disabled = savedTime < 30;
+            if (pipUse60) pipUse60.disabled = savedTime < 60;
+            if (pipUse120) pipUse120.disabled = savedTime < 120;
         }
 
         // 初期化
