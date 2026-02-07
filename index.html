@@ -459,20 +459,6 @@
             color: #6b9080;
         }
 
-        /* 現在のステップ詳細 */
-        .current-step-detail {
-            background: #f0f5f2;
-            border: 1px solid #d0dcd5;
-            border-radius: 6px;
-            padding: 12px;
-            margin-bottom: 15px;
-        }
-
-        .step-number-large {
-            font-size: 1.2rem;
-            color: #5c8a6e;
-            margin-bottom: 5px;
-        }
     </style>
 </head>
 <body>
@@ -1194,7 +1180,6 @@
                     });
 
                 } catch (error) {
-                    console.error('PiP error:', error);
                     openPopupFallback();
                 }
             } else {

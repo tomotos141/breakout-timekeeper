@@ -12,19 +12,19 @@ A standalone HTML5 timekeeper application for Zoom breakout room sessions. Desig
 
 ## Running the Application
 
-Open `timekeeper.html` directly in a web browser - no build process or server required.
+Open `index.html` directly in a web browser - no build process or server required.
 
 ```bash
 # Windows
-start timekeeper.html
+start index.html
 
 # macOS
-open timekeeper.html
+open index.html
 ```
 
 ## Architecture
 
-Single-file application (`timekeeper.html`) containing:
+Single-file application (`index.html`) containing:
 - **Inline CSS**: Dark theme styling with color-coded progress states (green → yellow → red)
 - **Vanilla JavaScript**: Event-driven timer with Web Audio API for sound alerts
 
