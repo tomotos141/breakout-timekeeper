@@ -474,25 +474,13 @@
             margin-bottom: 5px;
         }
     </style>
-    <!-- Firebase (Realtime Database) - paste CDN -->
-    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
 </head>
 <body>
     <div class="top-buttons">
-        <input id="teamInput" placeholder="チーム名を入力" style="padding:6px 8px;border-radius:6px;border:1px solid #ddd;width:140px" />
-        <button class="top-btn" id="joinRoomBtn">ルーム参加</button>
-        <button class="top-btn" id="takeHostBtn" style="display:none;">ホストを取得</button>
-        <button class="top-btn active" id="meetingTypeBtn" onclick="toggleMeetingType()">
-            初回MTG: ON
-        </button>
-        <button class="top-btn" id="pipBtn" onclick="openPiP()">
-            📌 ミニ表示
-        </button>
-        <button class="top-btn" onclick="toggleSound()">
-            🔔 <span id="soundStatus">ON</span>
-        </button>
-        <div id="roomStatus" style="margin-left:10px;color:#666;font-size:0.9rem;align-self:center">未参加</div>
+        <button class="top-btn active" id="meetingTypeBtn" onclick="toggleMeetingType()">初回MTG: ON</button>
+        <button class="top-btn" id="pipBtn" onclick="openPiP()">📌 ミニ表示</button>
+        <button class="top-btn" onclick="toggleSound()">🔔 <span id="soundStatus">ON</span></button>
+    </div>
 
     <div class="container">
         <h1>ブレイクアウトルーム タイムキーパー</h1>
@@ -548,23 +536,7 @@
                 <div id="scheduleList"></div>
             </div>
 
-            <div class="schedule" id="p2pSection" style="margin-top:16px;">
-                <h3>🔗 P2P</h3>
-                <p style="font-size:0.9rem;color:#666;">手動シグナリング（コピー&ペースト）に加えて、自動シグナリング（シグナリングサーバ）での接続もサポートしています。</p>
-                <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;">
-                    <input id="signalingUrl" placeholder="シグナリングサーバURL (ws://...)" style="padding:6px 8px;border-radius:6px;border:1px solid #ddd;width:260px" value="ws://localhost:3000" />
-                    <button class="btn-start" id="connectSignalingBtn" onclick="connectSignaling()">シグナリング接続</button>
-                    <button class="btn-reset" id="disconnectSignalingBtn" onclick="disconnectSignaling()" style="display:none">切断</button>
-                </div>
-                <div id="p2pControls"></div>
-                <button class="btn-start" onclick="addPeerSlot()" style="margin-top:8px;">＋ 手動で接続を追加</button>
-                <div style="margin-top:8px;color:#444;font-size:0.9rem">あなたのクライアントID: <code id="clientIdDisplay" style="background:#fff;padding:2px 6px;border-radius:4px;border:1px solid #eee">${clientId}</code></div>
-            </div>
 
-            <div class="schedule" id="schedule">
-                <h3>📋 スケジュール</h3>
-                <div id="scheduleList"></div>
-            </div>
         </div>
 
         <div class="complete-screen" id="completeScreen">
@@ -639,369 +611,8 @@
         let isPaused = false;
         let soundEnabled = true;
         let savedTime = 0; // 余り時間の累計
-
-        // --- Firebase同期用 ---
-        let firebaseApp = null;
-        let db = null;
-        let roomRef = null;
-        let roomName = null;
-        let clientId = localStorage.getItem('clientId') || ('c-' + Math.random().toString(36).slice(2,9));
-        localStorage.setItem('clientId', clientId);
-        let hostId = null;
-        let isHost = false;
-        let lastRemoteUpdateAt = 0; // タイムスタンプで最後の更新を追跡
-        // ----------------------
-
-        // --- P2P (WebRTC) - manual signaling (copy/paste) + automatic signaling via WebSocket ---
-        const peers = []; // { id, pc, dc, slotId }
-        let peerCounter = 0;
-        const ICE_CONFIG = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
-        let p2pStateSyncInterval = null;
-
-        // signaling socket
-        let signalingSocket = null;
-        let signalingConnected = false;
-
-        function connectSignaling() {
-            const url = document.getElementById('signalingUrl').value.trim();
-            const room = document.getElementById('teamInput').value.trim();
-            if (!url) return alert('シグナリングサーバのURLを入力してください');
-            if (!room) return alert('チーム名を入力してから接続してください');
-
-            try {
-                signalingSocket = new WebSocket(url);
-            } catch (e) { return alert('接続に失敗しました: ' + e); }
-
-            signalingSocket.onopen = () => {
-                signalingConnected = true;
-                document.getElementById('connectSignalingBtn').style.display = 'none';
-                document.getElementById('disconnectSignalingBtn').style.display = 'inline-block';
-                // send join
-                sendSignaling({ type: 'join', room, from: clientId });
-            };
-            signalingSocket.onmessage = ev => {
-                try { const msg = JSON.parse(ev.data); handleSignalingMessage(msg); } catch(e){}
-            };
-            signalingSocket.onclose = () => {
-                signalingConnected = false;
-                document.getElementById('connectSignalingBtn').style.display = 'inline-block';
-                document.getElementById('disconnectSignalingBtn').style.display = 'none';
-                // cleanup peers created through signaling? keep manual ones
-            };
-            signalingSocket.onerror = () => { alert('シグナリング接続のエラー'); };
-        }
-
-        function disconnectSignaling() {
-            if (signalingSocket) { signalingSocket.close(); signalingSocket = null; }
-        }
-
-        function sendSignaling(msg) {
-            if (!signalingSocket || signalingSocket.readyState !== WebSocket.OPEN) return;
-            signalingSocket.send(JSON.stringify(msg));
-        }
-
-        function handleSignalingMessage(msg) {
-            const { type } = msg;
-            if (type === 'peers') {
-                (msg.peers || []).forEach(peerId => {
-                    // we are the joining client => initiate to each existing peer
-                    createOfferToPeer(peerId);
-                });
-            } else if (type === 'peer-joined') {
-                // a new peer joined after us; we might be the existing peer -> the joining one will initiate
-                // optional: we can initiate if we want, but better: wait for their offer
-            } else if (type === 'offer' && msg.to === clientId) {
-                handleRemoteOffer(msg);
-            } else if (type === 'answer' && msg.to === clientId) {
-                handleRemoteAnswer(msg);
-            } else if (type === 'ice' && msg.to === clientId) {
-                handleRemoteIce(msg);
-            } else if (type === 'peer-left') {
-                // remove peer
-                const p = peers.find(x => x.id === msg.id);
-                if (p) { try { p.dc.close(); } catch(e){}; try { p.pc.close(); } catch(e){}; const i = peers.indexOf(p); if (i>=0) peers.splice(i,1); }
-                electHostIfNeeded();
-            }
-        }
-
-        function createOfferToPeer(peerId) {
-            // avoid duplicate
-            if (peers.find(p => p.id === peerId)) return;
-            const pc = new RTCPeerConnection(ICE_CONFIG);
-            const dc = pc.createDataChannel('timedata');
-            const peerObj = { id: peerId, pc, dc, slotId: null };
-            setupDataChannel(peerObj);
-            setupPC(pc, peerObj);
-
-            pc.onicecandidate = ev => {
-                if (ev.candidate) {
-                    sendSignaling({ type: 'ice', room: document.getElementById('teamInput').value.trim(), from: clientId, to: peerId, candidate: ev.candidate });
-                }
-            };
-
-            peers.push(peerObj);
-
-            pc.createOffer().then(offer => pc.setLocalDescription(offer)).then(() => {
-                sendSignaling({ type: 'offer', room: document.getElementById('teamInput').value.trim(), from: clientId, to: peerId, sdp: pc.localDescription });
-            }).catch(err => console.error(err));
-        }
-
-        async function handleRemoteOffer(msg) {
-            const from = msg.from;
-            // create pc if not exists
-            if (peers.find(p => p.id === from)) return; // already handled
-            const pc = new RTCPeerConnection(ICE_CONFIG);
-            let dcRef = null;
-            pc.ondatachannel = ev => { dcRef = ev.channel; const peerObj = { id: from, pc, dc: dcRef, slotId: null }; setupDataChannel(peerObj); setupPC(pc, peerObj); peers.push(peerObj); };
-
-            pc.onicecandidate = ev => {
-                if (ev.candidate) {
-                    sendSignaling({ type: 'ice', room: document.getElementById('teamInput').value.trim(), from: clientId, to: from, candidate: ev.candidate });
-                }
-            };
-
-            try {
-                await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
-                const answer = await pc.createAnswer();
-                await pc.setLocalDescription(answer);
-                sendSignaling({ type: 'answer', room: document.getElementById('teamInput').value.trim(), from: clientId, to: from, sdp: pc.localDescription });
-            } catch (e) { console.error(e); }
-        }
-
-        async function handleRemoteAnswer(msg) {
-            const from = msg.from;
-            const p = peers.find(x => x.id === from);
-            if (!p) return;
-            try {
-                await p.pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
-            } catch (e) { console.error(e); }
-        }
-
-        function handleRemoteIce(msg) {
-            const from = msg.from;
-            const p = peers.find(x => x.id === from);
-            if (!p) return;
-            try { p.pc.addIceCandidate(new RTCIceCandidate(msg.candidate)); } catch(e) { console.error(e); }
-        }
-
-            peerCounter++;
-            const slotId = 'peerSlot' + peerCounter;
-            const container = document.getElementById('p2pControls');
-            const div = document.createElement('div');
-            div.id = slotId;
-            div.style = 'background:white;padding:10px;border:1px solid #eee;margin-top:8px;border-radius:6px;';
-            div.innerHTML = `
-                <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;">
-                    <strong>Peer #${peerCounter}</strong>
-                    <button onclick="createOffer('${slotId}')">Offer 生成</button>
-                    <button onclick="createAnswerFromOffer('${slotId}')">OfferからAnswer生成</button>
-                </div>
-                <div style="display:flex;gap:8px;">
-                    <textarea id="${slotId}_local" placeholder="ここにあなたのOffer/Answerをコピー" style="flex:1;height:80px;font-size:0.8rem"></textarea>
-                    <textarea id="${slotId}_remote" placeholder="ここに相手のOffer/Answerを貼り付け" style="flex:1;height:80px;font-size:0.8rem"></textarea>
-                </div>
-                <div style="display:flex;gap:8px;margin-top:6px;">
-                    <button onclick="pasteRemote('${slotId}')">リモートを貼り付けて適用</button>
-                    <button onclick="removePeerSlot('${slotId}')" style="background:#f8f8f8">削除</button>
-                </div>
-            `;
-            container.appendChild(div);
-        }
-
-        function removePeerSlot(slotId) {
-            const el = document.getElementById(slotId);
-            if (!el) return;
-            // close peer if exists
-            const p = peers.find(x => x.slotId === slotId);
-            if (p) {
-                try { p.dc.close(); } catch(e){}
-                try { p.pc.close(); } catch(e){}
-                const idx = peers.indexOf(p); if (idx >= 0) peers.splice(idx,1);
-            }
-            el.remove();
-        }
-
-        async function createOffer(slotId) {
-            const pc = new RTCPeerConnection(ICE_CONFIG);
-            const dc = pc.createDataChannel('timedata');
-            const peerObj = { id: null, pc, dc, slotId };
-            setupDataChannel(peerObj);
-            setupPC(pc, peerObj);
-
-            const offer = await pc.createOffer();
-            await pc.setLocalDescription(offer);
-
-            document.getElementById(`${slotId}_local`).value = JSON.stringify(offer);
-            peers.push(peerObj);
-        }
-
-        async function createAnswerFromOffer(slotId) {
-            const offerText = document.getElementById(`${slotId}_remote`).value.trim();
-            if (!offerText) return alert('先に相手のOfferを貼ってください');
-            let offer;
-            try { offer = JSON.parse(offerText); } catch (e) { return alert('不正なJSONです'); }
-
-            const pc = new RTCPeerConnection(ICE_CONFIG);
-            pc.ondatachannel = ev => {
-                const dc = ev.channel;
-                const peerObj = { id: null, pc, dc, slotId };
-                peerObj.dc = dc;
-                setupDataChannel(peerObj);
-                setupPC(pc, peerObj);
-                peers.push(peerObj);
-            };
-
-            await pc.setRemoteDescription(offer);
-            const answer = await pc.createAnswer();
-            await pc.setLocalDescription(answer);
-            document.getElementById(`${slotId}_local`).value = JSON.stringify(answer);
-        }
-
-        async function pasteRemote(slotId) {
-            const remoteText = document.getElementById(`${slotId}_remote`).value.trim();
-            if (!remoteText) return alert('貼り付けるデータがありません');
-            let desc;
-            try { desc = JSON.parse(remoteText); } catch(e) { return alert('不正なJSONです'); }
-
-            // find peer slot without remote yet
-            let p = peers.find(x => x.slotId === slotId && x.pc && (x.pc.remoteDescription == null || x.pc.remoteDescription.type == null));
-            if (!p) {
-                // maybe this is the initiator pasting answer
-                p = peers.find(x => x.slotId === slotId && x.pc);
-            }
-            if (!p) return alert('対応するPeerが見つかりません');
-
-            try {
-                await p.pc.setRemoteDescription(desc);
-                console.log('Remote desc applied');
-            } catch (err) {
-                alert('Remote desc の適用に失敗しました: ' + err);
-            }
-        }
-
-        function setupPC(pc, peerObj) {
-            pc.onicecandidate = ev => {
-                if (!ev.candidate) return;
-                // we don't automatically send ICE candidates (they are included in the SDP copy/paste flow or can be ignored in most cases)
-            };
-            pc.onconnectionstatechange = () => {
-                if (pc.connectionState === 'connected') {
-                    console.log('Peer connected');
-                }
-            };
-        }
-
-        function setupDataChannel(peerObj) {
-            const dc = peerObj.dc;
-            dc.onopen = () => {
-                // send hello with clientId
-                const hello = { type: 'hello', clientId };
-                dc.send(JSON.stringify(hello));
-                // request current state from peer (if we are new)
-                const req = { type: 'request-state', from: clientId };
-                dc.send(JSON.stringify(req));
-                updatePeerIdOnce(remoteIdFromDc(dc), peerObj);
-            };
-            dc.onmessage = ev => {
-                try {
-                    const msg = JSON.parse(ev.data);
-                    handleP2PMessage(msg, peerObj, dc);
-                } catch (e) { console.error('Invalid msg', e); }
-            };
-            dc.onclose = () => {
-                // remove peer
-                const idx = peers.indexOf(peerObj);
-                if (idx >= 0) peers.splice(idx,1);
-                // re-evaluate host
-                electHostIfNeeded();
-            };
-        }
-
-        function remoteIdFromDc(dc) {
-            // no direct reliable mapping; peer objects updated on hello
-            return null;
-        }
-
-        function updatePeerIdOnce(remoteId, peerObj) {
-            if (remoteId && !peerObj.id) peerObj.id = remoteId;
-            electHostIfNeeded();
-        }
-
-        function handleP2PMessage(msg, peerObj, dc) {
-            if (msg.type === 'hello') {
-                peerObj.id = msg.clientId;
-                electHostIfNeeded();
-            } else if (msg.type === 'request-state') {
-                // if I'm host, send state
-                if (isHost) {
-                    const stateMsg = makeStateMessage();
-                    dc.send(JSON.stringify(stateMsg));
-                }
-            } else if (msg.type === 'state') {
-                // apply state sent by host
-                applyRemoteState(msg);
-            } else if (msg.type === 'action') {
-                // actions from host (e.g., useSaved, next)
-                if (msg.action === 'useSaved') {
-                    savedTime = msg.savedTime;
-                    timeRemaining = msg.timeRemaining;
-                    updateDisplay();
-                }
-            }
-        }
-
-        function makeStateMessage() {
-            return { type: 'state', currentIndex, timeRemaining, savedTime, meetingType, ts: Date.now() };
-        }
-
-        function applyRemoteState(msg) {
-            // accept if newer
-            if (msg.ts && msg.ts <= lastRemoteUpdateAt) return; // ignore old
-            lastRemoteUpdateAt = msg.ts || Date.now();
-            meetingType = msg.meetingType || meetingType;
-            includeRole = meetingType === 'first';
-            schedule = generateSchedule();
-            currentIndex = msg.currentIndex || currentIndex;
-            timeRemaining = typeof msg.timeRemaining === 'number' ? msg.timeRemaining : timeRemaining;
-            savedTime = typeof msg.savedTime === 'number' ? msg.savedTime : savedTime;
-
-            updateScheduleList();
-            updateFlowDiagram();
-            updateSavedTimeDisplay();
-            updateDisplay();
-        }
-
-        function broadcastToPeers(obj) {
-            peers.forEach(p => {
-                try { if (p.dc && p.dc.readyState === 'open') p.dc.send(JSON.stringify(obj)); } catch(e){}
-            });
-        }
-
-        function electHostIfNeeded() {
-            // collect ids
-            const ids = [clientId];
-            peers.forEach(p => { if (p.id) ids.push(p.id); });
-            const newHost = ids.sort()[0];
-            isHost = (newHost === clientId);
-            hostId = newHost;
-            updateHostUI();
-
-            // if I became host, start periodic state broadcast
-            if (isHost) startP2PStateBroadcast(); else stopP2PStateBroadcast();
-        }
-
-        function startP2PStateBroadcast() {
-            if (p2pStateSyncInterval) clearInterval(p2pStateSyncInterval);
-            p2pStateSyncInterval = setInterval(() => {
-                const msg = makeStateMessage();
-                broadcastToPeers(msg);
-            }, 1000);
-        }
-
-        function stopP2PStateBroadcast() {
-            if (p2pStateSyncInterval) { clearInterval(p2pStateSyncInterval); p2pStateSyncInterval = null; }
-        }
-
+        let pipWindow = null; // PiP用ウィンドウハンドル（先に宣言しておく）
+        let audioContext = null; // Web Audio context
         // expose a small helper for popup fallback to call useSavedTime
         window.useSavedTime = useSavedTime;
 
@@ -1019,180 +630,7 @@
             btn.classList.toggle('active', meetingType === 'first');
             updateScheduleList();
             updateFlowDiagram();
-
-            // ホストがいれば状態を書き込む
-            if (isHost && roomRef) {
-                roomRef.update({ meetingType });
-            }
         }
-
-        // --- Firebase sync helpers ---
-        function setupFirebaseFromPrompt() {
-            if (firebaseApp) return true;
-            const cfgStr = prompt('Firebase の web 設定を JSON で貼り付けてください（apiKey, authDomain, databaseURL など）');
-            if (!cfgStr) return false;
-            try {
-                const cfg = JSON.parse(cfgStr);
-                firebaseApp = firebase.initializeApp(cfg);
-                db = firebase.database();
-                return true;
-            } catch (err) {
-                alert('設定の読み込みに失敗しました: ' + err);
-                return false;
-            }
-        }
-
-        function joinRoom(name) {
-            if (!name) return alert('チーム名を入力してください');
-            if (!setupFirebaseFromPrompt()) return;
-
-            roomName = name;
-            roomRef = db.ref('rooms/' + roomName);
-
-            // 参加情報を設定
-            document.getElementById('roomStatus').textContent = `ルーム: ${roomName}（接続中）`;
-            document.getElementById('takeHostBtn').style.display = 'inline-block';
-
-            // ルーム全体の状態を購読
-            roomRef.on('value', snap => {
-                const data = snap.val() || {};
-                // 状態をローカルに反映
-                if (data.meetingType && data.meetingType !== meetingType) {
-                    meetingType = data.meetingType;
-                    includeRole = meetingType === 'first';
-                    schedule = generateSchedule();
-                }
-                if (typeof data.currentIndex === 'number') currentIndex = data.currentIndex;
-                if (typeof data.timeRemaining === 'number') timeRemaining = data.timeRemaining;
-                if (typeof data.savedTime === 'number') savedTime = data.savedTime;
-                if (typeof data.timerRunning === 'boolean') {
-                    // タイマー実行状態
-                    if (data.timerRunning) {
-                        // 非ホストは UI を更新して受動的に表示
-                    }
-                }
-                hostId = data.hostId || null;
-                isHost = hostId === clientId;
-
-                // UI更新
-                updateScheduleList();
-                updateFlowDiagram();
-                updateSavedTimeDisplay();
-                updateDisplay();
-                updateHostUI();
-            });
-
-            // try to claim host if none
-            roomRef.child('hostId').transaction(current => current || clientId);
-        }
-
-        function claimHost() {
-            if (!roomRef) return alert('まずはルームに参加してください');
-            roomRef.child('hostId').transaction(current => {
-                if (!current || current === clientId) return clientId;
-                return; // abort
-            }, (err, committed, snap) => {
-                if (err) return alert('ホスト取得エラー');
-                if (committed) {
-                    hostId = snap.val();
-                    isHost = hostId === clientId;
-                    updateHostUI();
-                    alert(isHost ? 'あなたがホストになりました' : 'ホスト取得に失敗しました');
-                } else {
-                    alert('既に他の人がホストです');
-                }
-            });
-        }
-
-        function updateHostUI() {
-            const takeBtn = document.getElementById('takeHostBtn');
-            const roomEl = document.getElementById('roomStatus');
-            if (!roomRef) {
-                roomEl.textContent = '未参加';
-                takeBtn.style.display = 'none';
-                return;
-            }
-            roomEl.textContent = `ルーム: ${roomName} ${isHost ? '(あなた = ホスト)' : `(ホスト: ${hostId ? hostId.slice(0,6) : '未設定'})`}`;
-            takeBtn.style.display = isHost ? 'none' : 'inline-block';
-
-            // 権限がない場合は操作ボタンを無効化
-            const disabled = !isHost;
-            document.getElementById('startBtn').disabled = disabled;
-            document.getElementById('pauseBtn').disabled = disabled;
-            document.getElementById('nextBtn').disabled = disabled;
-            const useBtns = document.querySelectorAll('.btn-use-saved');
-            useBtns.forEach(b => b.disabled = disabled || savedTime < parseInt((b.getAttribute('onclick')||'').match(/\d+/)?.[0] || 0));
-            // PiPのボタン状態も更新
-            updatePiPControls();
-        }
-
-        // 書き込みのユーティリティ（ホストが呼ぶ）
-        function writeRoomState(patch) {
-            if (!roomRef) return;
-            roomRef.update(Object.assign({}, patch, { lastUpdateBy: clientId, lastUpdateAt: Date.now() }));
-        }
-
-        // ホスト用: タイマーをDBでホストするロジック
-        let hostTimerInterval = null;
-        function hostStartTimer() {
-            // stop previous if any
-            if (hostTimerInterval) clearInterval(hostTimerInterval);
-            // start remote timer flag
-            writeRoomState({ timerRunning: true, timeRemaining });
-
-            hostTimerInterval = setInterval(() => {
-                if (timeRemaining > 0) {
-                    timeRemaining--;
-                    writeRoomState({ timeRemaining });
-
-                    // 30秒前 / 10秒前 効果音はホスト側で再生
-                    if (timeRemaining === 30) playBeep(600, 150, 2);
-                    if (timeRemaining <= 10 && timeRemaining > 0) playBeep(800, 100, 1);
-                }
-                if (timeRemaining <= 0) {
-                    playBeep(1000, 300, 3);
-                    // 次のセクションへ
-                    // add remaining to savedTime
-                    savedTime += 0; // already 0
-                    writeRoomState({ savedTime });
-                    // move to next
-                    currentIndex++;
-                    if (currentIndex >= schedule.length) {
-                        // complete
-                        writeRoomState({ currentIndex, timerRunning: false });
-                        clearInterval(hostTimerInterval);
-                        hostTimerInterval = null;
-                    } else {
-                        timeRemaining = schedule[currentIndex].duration;
-                        writeRoomState({ currentIndex, timeRemaining });
-                    }
-                }
-            }, 1000);
-        }
-
-        function hostPauseTimer() {
-            if (hostTimerInterval) {
-                clearInterval(hostTimerInterval);
-                hostTimerInterval = null;
-            }
-            writeRoomState({ timerRunning: false });
-        }
-
-        // UI wiring for join/host buttons
-        document.addEventListener('DOMContentLoaded', () => {
-            const joinBtn = document.getElementById('joinRoomBtn');
-            const takeHostBtn = document.getElementById('takeHostBtn');
-            const teamInput = document.getElementById('teamInput');
-
-            joinBtn.addEventListener('click', () => {
-                const name = teamInput.value.trim();
-                joinRoom(name);
-            });
-            takeHostBtn.addEventListener('click', () => claimHost());
-        });
-
-        // 音声コンテキスト
-        let audioContext = null;
 
         function initAudio() {
             if (!audioContext) {
@@ -1341,9 +779,6 @@
         }
 
         function useSavedTime(seconds) {
-            if (roomRef && !isHost) {
-                return alert('貯金を使えるのはホストのみです。');
-            }
             if (savedTime < seconds) return;
 
             savedTime -= seconds;
@@ -1351,8 +786,6 @@
 
             // 効果音
             playBeep(1200, 100, 1);
-
-            if (isHost && roomRef) writeRoomState({ savedTime, timeRemaining });
 
             updateDisplay();
         }
@@ -1385,10 +818,6 @@
         }
 
         function jumpToSection(index) {
-            if (roomRef && !isHost) {
-                return alert('この操作はホストのみ可能です。');
-            }
-
             // タイマー実行中は確認
             if (timerInterval && !isPaused) {
                 if (!confirm('タイマーを停止してこの地点から開始しますか？')) {
@@ -1412,8 +841,6 @@
             document.getElementById('pauseBtn').classList.add('hidden');
             document.getElementById('pauseBtn').textContent = '⏸ 一時停止';
             document.getElementById('nextBtn').classList.add('hidden');
-
-            if (isHost && roomRef) writeRoomState({ currentIndex, timeRemaining });
 
             updateDisplay();
         }
@@ -1523,11 +950,6 @@
         }
 
         function startTimer() {
-            if (roomRef && !isHost) {
-                return alert('この操作はホストのみ可能です。
-ホスト権限を取得してください。');
-            }
-
             initAudio();
 
             if (currentIndex === 0 && timeRemaining === 0) {
@@ -1539,52 +961,31 @@
             document.getElementById('pauseBtn').classList.remove('hidden');
             document.getElementById('nextBtn').classList.remove('hidden');
 
-            // ホストがいる場合はホスト側でDBを主導
-            if (isHost && roomRef) {
-                writeRoomState({ currentIndex, timeRemaining, timerRunning: true });
-                hostStartTimer();
-            } else {
-                // シングルユーザーモードの挙動（ローカルのみ）
-                timerInterval = setInterval(() => {
-                    if (!isPaused) {
-                        timeRemaining--;
-                        updateDisplay();
+            timerInterval = setInterval(() => {
+                if (!isPaused) {
+                    timeRemaining--;
+                    updateDisplay();
 
-                        if (timeRemaining === 30) playBeep(600, 150, 2);
-                        if (timeRemaining <= 10 && timeRemaining > 0) playBeep(800, 100, 1);
+                    if (timeRemaining === 30) playBeep(600, 150, 2);
+                    if (timeRemaining <= 10 && timeRemaining > 0) playBeep(800, 100, 1);
 
-                        if (timeRemaining <= 0) {
-                            playBeep(1000, 300, 3);
-                            nextSection();
-                        }
+                    if (timeRemaining <= 0) {
+                        playBeep(1000, 300, 3);
+                        nextSection();
                     }
-                }, 1000);
-            }
+                }
+            }, 1000);
 
             updateDisplay();
         }
 
         function pauseTimer() {
-            if (roomRef && !isHost) {
-                return alert('この操作はホストのみ可能です。');
-            }
-
             isPaused = !isPaused;
             const btn = document.getElementById('pauseBtn');
             btn.textContent = isPaused ? '▶ 再開' : '⏸ 一時停止';
-
-            if (isHost && roomRef) {
-                if (isPaused) hostPauseTimer();
-                else hostStartTimer();
-            }
-            if (roomRef && isHost) writeRoomState({ timerRunning: !isPaused });
         }
 
         function nextSection() {
-            if (roomRef && !isHost) {
-                return alert('この操作はホストのみ可能です。');
-            }
-
             // 余り時間を加算（手動スキップの場合のみ）
             if (timeRemaining > 0) {
                 savedTime += timeRemaining;
@@ -1594,9 +995,6 @@
 
             if (currentIndex >= schedule.length) {
                 // 完了
-                if (isHost && roomRef) {
-                    writeRoomState({ currentIndex, timerRunning: false, savedTime });
-                }
                 clearInterval(timerInterval);
                 document.getElementById('mainContent').classList.add('hidden');
                 document.getElementById('completeScreen').classList.add('show');
@@ -1606,15 +1004,10 @@
             }
 
             timeRemaining = schedule[currentIndex].duration;
-            if (isHost && roomRef) writeRoomState({ currentIndex, timeRemaining, savedTime });
             updateDisplay();
         }
 
         function resetTimer() {
-            if (roomRef && !isHost) {
-                return alert('この操作はホストのみ可能です。');
-            }
-
             clearInterval(timerInterval);
             timerInterval = null;
             currentIndex = 0;
@@ -1628,12 +1021,6 @@
             document.getElementById('pauseBtn').classList.add('hidden');
             document.getElementById('pauseBtn').textContent = '⏸ 一時停止';
             document.getElementById('nextBtn').classList.add('hidden');
-
-            // ホストならルーム状態として反映
-            if (isHost && roomRef) {
-                writeRoomState({ currentIndex: 0, timeRemaining: 0, timerRunning: false });
-            }
-        }
 
             document.getElementById('sectionName').textContent = '開始前';
             document.getElementById('sectionDescription').textContent = 'スタートボタンを押してください';
@@ -1650,7 +1037,6 @@
         }
 
         // ピクチャーインピクチャー
-        let pipWindow = null;
 
         async function openPiP() {
             // Document PiP APIが使えるか確認
@@ -2007,23 +1393,23 @@
                     startBtn.textContent = '⏸ 一時停止';
                     startBtn.classList.remove('primary');
                 }
-                startBtn.disabled = !isHost;
+                startBtn.disabled = false;
             }
 
             if (nextBtn) {
                 nextBtn.style.display = timerInterval ? 'block' : 'none';
-                nextBtn.disabled = !isHost;
+                nextBtn.disabled = false;
             }
 
             // 貯金使用ボタンの表示 / 有効化
             if (pipSavedControls) {
                 pipSavedControls.style.display = (timerInterval && savedTime > 0) ? 'flex' : 'none';
             }
-            if (pipUse30) pipUse30.disabled = (!isHost) || savedTime < 30;
-            if (pipUse60) pipUse60.disabled = (!isHost) || savedTime < 60;
-            if (pipUse120) pipUse120.disabled = (!isHost) || savedTime < 120;
+            if (pipUse30) pipUse30.disabled = savedTime < 30;
+            if (pipUse60) pipUse60.disabled = savedTime < 60;
+            if (pipUse120) pipUse120.disabled = savedTime < 120;
 
-            // PiP でもP2P状態を表示（簡易）
+            // PiP の貯金表示
             const pipSaved = pipWindow.document.getElementById('pipSaved');
             if (pipSaved) pipSaved.textContent = savedTime > 0 ? `貯金: +${formatTime(savedTime)}` : '';
         }
@@ -2031,9 +1417,7 @@
         // 初期化
         updateScheduleList();
         updateFlowDiagram();
-        updateHostUI();
         updatePiPControls();
-        document.getElementById('clientIdDisplay').textContent = clientId;
     </script>
 </body>
 </html>
