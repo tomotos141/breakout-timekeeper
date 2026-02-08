@@ -483,6 +483,7 @@
             <div class="section-description" id="sectionDescription">スタートボタンを押してください</div>
 
             <div class="timer-display" id="timerDisplay">00:00</div>
+            <div id="timeAlert" style="text-align:center; font-size:0.9rem; font-weight:bold; min-height:1.3em;"></div>
 
             <div class="progress-bar-container">
                 <div class="progress-bar" id="progressBar" style="width: 100%"></div>
@@ -500,6 +501,9 @@
                 <button class="btn-next hidden" id="nextBtn" onclick="nextSection()">⏭ 次へスキップ</button>
                 <button class="btn-reset" onclick="resetTimer()" title="貯金は保持されます（クリックで開始位置を選択できます）">↺ リセット</button>
             </div>
+            <div style="text-align:center; font-size:0.75rem; color:#999; margin-top:4px;">
+                ⌨ Space: 開始/一時停止　→: 次へ　R: リセット
+            </div>
 
             <div class="use-saved-time hidden" id="useSavedTimeControls">
                 <span class="use-saved-label">貯金を使う:</span>
@@ -511,9 +515,9 @@
             <div class="participants">
                 <h3>👥 参加者名（任意）</h3>
                 <div class="participant-inputs">
-                    <input type="text" placeholder="1人目" onchange="updateParticipantName(0, this.value)">
-                    <input type="text" placeholder="2人目" onchange="updateParticipantName(1, this.value)">
-                    <input type="text" placeholder="3人目" onchange="updateParticipantName(2, this.value)">
+                    <input type="text" id="name0" placeholder="1人目" oninput="updateParticipantName(0, this.value)">
+                    <input type="text" id="name1" placeholder="2人目" oninput="updateParticipantName(1, this.value)">
+                    <input type="text" id="name2" placeholder="3人目" oninput="updateParticipantName(2, this.value)">
                 </div>
             </div>
 
@@ -584,9 +588,26 @@
 
         function updateParticipantName(index, name) {
             participantNames[index] = name;
+            try { localStorage.setItem('participantNames', JSON.stringify(participantNames)); } catch(e) {}
             updateScheduleList();
             updateFlowDiagram();
             updateDisplay();
+        }
+
+        function restoreParticipantNames() {
+            try {
+                const saved = localStorage.getItem('participantNames');
+                if (saved) {
+                    const names = JSON.parse(saved);
+                    for (let i = 0; i < 3; i++) {
+                        if (names[i]) {
+                            participantNames[i] = names[i];
+                            const el = document.getElementById('name' + i);
+                            if (el) el.value = names[i];
+                        }
+                    }
+                }
+            } catch(e) {}
         }
 
         let schedule = generateSchedule();
@@ -702,12 +723,19 @@
             timerDisplay.classList.remove('warning', 'danger');
             progressBar.classList.remove('warning', 'danger');
 
+            const timeAlert = document.getElementById('timeAlert');
             if (timeRemaining <= 10) {
                 timerDisplay.classList.add('danger');
                 progressBar.classList.add('danger');
+                timeAlert.textContent = '\u26a0 まもなく終了';
+                timeAlert.style.color = '#c0392b';
             } else if (timeRemaining <= 30) {
                 timerDisplay.classList.add('warning');
                 progressBar.classList.add('warning');
+                timeAlert.textContent = '\u26a0 残り少';
+                timeAlert.style.color = '#b8860b';
+            } else {
+                timeAlert.textContent = '';
             }
 
             // ステップ情報
@@ -1014,6 +1042,7 @@
             document.getElementById('timerDisplay').classList.remove('warning', 'danger');
             document.getElementById('progressBar').style.width = '100%';
             document.getElementById('progressBar').classList.remove('warning', 'danger');
+            document.getElementById('timeAlert').textContent = '';
             document.getElementById('personIndicator').textContent = '準備中';
             document.getElementById('personIndicator').classList.remove('active');
 
@@ -1127,6 +1156,7 @@
                         <div class="pip-section" id="pipSection">開始前</div>
                         <div class="pip-person" id="pipPerson">準備中</div>
                         <div class="pip-timer" id="pipTimer">00:00</div>
+                        <div id="pipTimeAlert" style="text-align:center; font-size:0.7rem; font-weight:bold; min-height:1em;"></div>
                         <div class="pip-progress">
                             <div class="pip-progress-bar" id="pipProgressBar" style="width: 100%"></div>
                         </div>
@@ -1251,6 +1281,18 @@
                 pipTimer.className = 'pip-timer';
                 if (timeRemaining <= 10) pipTimer.classList.add('danger');
                 else if (timeRemaining <= 30) pipTimer.classList.add('warning');
+            }
+            const pipTimeAlert = pipWindow.document.getElementById('pipTimeAlert');
+            if (pipTimeAlert) {
+                if (timeRemaining <= 10) {
+                    pipTimeAlert.textContent = '\u26a0 まもなく終了';
+                    pipTimeAlert.style.color = '#c0392b';
+                } else if (timeRemaining <= 30) {
+                    pipTimeAlert.textContent = '\u26a0 残り少';
+                    pipTimeAlert.style.color = '#b8860b';
+                } else {
+                    pipTimeAlert.textContent = '';
+                }
             }
             if (pipProgressBar) {
                 const progress = current.duration > 0 ? (timeRemaining / current.duration) * 100 : 0;
@@ -1399,7 +1441,29 @@
             if (pipSaved) pipSaved.textContent = savedTime > 0 ? `貯金: +${formatTime(savedTime)}` : '';
         }
 
+        // キーボードショートカット
+        document.addEventListener('keydown', function(e) {
+            // テキスト入力中は無視
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+
+            if (e.code === 'Space') {
+                e.preventDefault();
+                if (timerInterval) {
+                    pauseTimer();
+                } else {
+                    startTimer();
+                }
+            } else if (e.code === 'ArrowRight') {
+                e.preventDefault();
+                if (timerInterval) nextSection();
+            } else if (e.code === 'KeyR' && !e.ctrlKey && !e.metaKey) {
+                e.preventDefault();
+                resetTimer();
+            }
+        });
+
         // 初期化
+        restoreParticipantNames();
         updateScheduleList();
         updateFlowDiagram();
         updatePiPControls();

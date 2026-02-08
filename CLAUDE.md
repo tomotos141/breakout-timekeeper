@@ -25,7 +25,7 @@ open index.html
 ## Architecture
 
 Single-file application (`index.html`) containing:
-- **Inline CSS**: Dark theme styling with color-coded progress states (green → yellow → red)
+- **Inline CSS**: Light theme styling with color-coded progress states (green → yellow → red)
 - **Vanilla JavaScript**: Event-driven timer with Web Audio API for sound alerts
 
 Key state variables:
@@ -34,4 +34,6 @@ Key state variables:
 - `timeRemaining` - Countdown seconds for current session
 - `timerInterval` - setInterval reference for the 1-second tick
 
-Session structure: 1 setup phase (2 min) + 3 rounds of 4 activities per person (3+5+10+3 min each).
+Session structure: 1 setup phase (2 min) + 3 rounds per person.
+- First meeting (初回): 5 activities per person (3+5+5+5+3 min)
+- Subsequent meetings (2回目以降): 4 activities per person (3+5+10+3 min)
