@@ -466,6 +466,9 @@
         <button class="top-btn active" id="meetingTypeBtn" onclick="toggleMeetingType()">初回MTG: ON</button>
         <button class="top-btn" id="pipBtn" onclick="openPiP()">📌 ミニ表示</button>
         <button class="top-btn" onclick="toggleSound()">🔔 <span id="soundStatus">ON</span></button>
+        <input type="range" id="volumeSlider" min="0" max="100" value="50"
+               oninput="updateVolume(this.value)"
+               style="width:80px; vertical-align:middle; cursor:pointer;">
     </div>
 
     <div class="container">
@@ -617,6 +620,7 @@
         let timerInterval = null;
         let isPaused = false;
         let soundEnabled = true;
+        let soundVolume = 0.5; // 0.0〜1.0
         let savedTime = 0; // 余り時間の累計
         let pipWindow = null; // PiP用ウィンドウハンドル（先に宣言しておく）
         let audioContext = null; // Web Audio context
@@ -660,7 +664,7 @@
                     oscillator.frequency.value = frequency;
                     oscillator.type = 'sine';
 
-                    gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+                    gainNode.gain.setValueAtTime(soundVolume * 0.6, audioContext.currentTime);
                     gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + duration / 1000);
 
                     oscillator.start(audioContext.currentTime);
@@ -669,9 +673,35 @@
             }
         }
 
+        let lastVolume = 0.5; // ON復帰時の音量記憶用
+
         function toggleSound() {
-            soundEnabled = !soundEnabled;
+            const slider = document.getElementById('volumeSlider');
+            if (soundEnabled) {
+                lastVolume = soundVolume || 0.5;
+                soundEnabled = false;
+                soundVolume = 0;
+                slider.value = 0;
+            } else {
+                soundVolume = lastVolume || 0.5;
+                soundEnabled = true;
+                slider.value = Math.round(soundVolume * 100);
+            }
             document.getElementById('soundStatus').textContent = soundEnabled ? 'ON' : 'OFF';
+            try { localStorage.setItem('soundVolume', soundVolume); } catch(e) {}
+        }
+
+        function updateVolume(val) {
+            soundVolume = val / 100;
+            try { localStorage.setItem('soundVolume', soundVolume); } catch(e) {}
+            if (soundVolume === 0) {
+                soundEnabled = false;
+                document.getElementById('soundStatus').textContent = 'OFF';
+            } else {
+                if (!soundEnabled) soundEnabled = true;
+                lastVolume = soundVolume;
+                document.getElementById('soundStatus').textContent = 'ON';
+            }
         }
 
         function formatTime(seconds) {
@@ -1462,7 +1492,20 @@
             }
         });
 
-        // 初期化
+        // 初期化: 音量復元
+        try {
+            const savedVol = localStorage.getItem('soundVolume');
+            if (savedVol !== null) {
+                soundVolume = parseFloat(savedVol);
+                lastVolume = soundVolume || 0.5;
+                document.getElementById('volumeSlider').value = Math.round(soundVolume * 100);
+                if (soundVolume === 0) {
+                    soundEnabled = false;
+                    document.getElementById('soundStatus').textContent = 'OFF';
+                }
+            }
+        } catch(e) {}
+
         restoreParticipantNames();
         updateScheduleList();
         updateFlowDiagram();
